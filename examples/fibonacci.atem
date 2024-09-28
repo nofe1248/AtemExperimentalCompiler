@@ -1,0 +1,31 @@
+io: module = import Atem.Lang.io
+
+test: module = {
+    main: func () -> Int64 = {
+        int_v1: var Int64 = 0
+        io.scan("Enter the index for fibonacci series: {}", int_v1)
+        result: var Int64 = fibonacci(int_v1)
+        io.print("Result: result$")
+        0
+    }
+
+    fibonacci: func (n: Int64) -> Int64 = 
+        expect n > 0
+        ensure $0 > 0
+    {
+        if n <= 2 {
+            1
+        }
+        else {
+            prev1: var Int64 = 1
+            prev2: var Int64 = 1
+            result: var Int64 = 0
+            for 3...n {
+                result = prev1 + prev2
+                prev1 = prev2
+                prev2 = result
+            }
+            result
+        }
+    }
+}

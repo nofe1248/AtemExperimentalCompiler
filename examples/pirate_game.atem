@@ -1,0 +1,46 @@
+io: module = import Atem.Lang.io
+
+region_test: module = {
+    main: func() -> Int64 = {
+        cannon: var = 'Cannon(.strength = 10)
+        ship: var = Ship(.current_hp = 100)
+        fire(&cannon.immutable, &ship)
+    }
+
+    fire: func <WeaponType: Weapon, VehicleType: Vehicle, ro'>(weapon: &ro'Weapon, vehicle: &vehicle) -> None = {
+        vehicle.setCurrentHp(vehicle.getCurrentHp() - weapon.calculateStrength())
+    }
+
+    Weapon: interface = {
+        calculateStrength: func (self: &Self this) -> Int64
+    }
+
+    Vehicle: interface = {
+        HpType: type
+        require HpType is Clonable
+        getCurrentHp: func (self: &Self this) -> HpType
+        setCurrentHp: func (self: &Self this, new_hp: HpType) -> None
+    }
+
+    Cannon: type = {
+        strength: var Int64
+        implement Weapon with {
+            calculateStrength: func = {
+                self*.strength * 2
+            }
+        }
+    }
+
+    Ship: type = {
+        current_hp: var Int64
+        implement Vehicle with {
+            HpType: type = Int64
+            getCurrentHp: func = {
+                self*.current_hp
+            }
+            setCurrentHp: func = {
+                self*.current_hp = new_hp
+            }
+        }
+    }
+}
