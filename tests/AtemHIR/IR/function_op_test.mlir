@@ -7,5 +7,6 @@ atemhir.function @main() -> !si64 {
     %1 = atemhir.constant #atemhir.int<42> : !ui64
     %2 = atemhir.constant #atemhir.int<42> : !si64
     %3 = atemhir.constant #atemhir.fp<-4.2e3> : !atemhir.fp128
+    %4 = atemhir.zeroinit : !atemhir.bool
     atemhir.return %2 : !si64
 }

@@ -170,3 +170,106 @@ auto mlir::atemhir::FPAttr::verify(function_ref<InFlightDiagnostic()> emit_error
     }
     return success();
 }
+
+//========================================================
+// ConstantArrayAttr Definitions
+//========================================================
+
+auto mlir::atemhir::ConstantArrayAttr::verify(function_ref<InFlightDiagnostic()> emit_error, Type type, Attribute elements) -> LogicalResult
+{
+    if (not mlir::isa<ArrayAttr>(elements))
+    {
+        return emit_error() << "constant array expects ArrayAttr";
+    }
+
+    auto array_attr = mlir::cast<ArrayAttr>(elements);
+    auto array_type = mlir::cast<ArrayType>(type);
+
+    if (array_type.getSize() != array_attr.size())
+    {
+        return emit_error() << "constant array size should match type size";
+    }
+
+    LogicalResult element_type_check = success();
+
+    array_attr.walkImmediateSubElements(
+        [&](Attribute element) {
+            if (element_type_check.failed())
+            {
+                return ;
+            }
+            auto typed_attr = mlir::dyn_cast<TypedAttr>(element);
+            if (not typed_attr or typed_attr.getType() != array_type.getElementType())
+            {
+                element_type_check = failure();
+                emit_error() << "constant array element type mismatch";
+            }
+        },
+        [&](Type type) {}
+    );
+    return element_type_check;
+}
+
+auto mlir::atemhir::ConstantArrayAttr::parse(AsmParser &parser, Type type) -> Attribute
+{
+    FailureOr<Type> result_type;
+    FailureOr<Attribute> result_attr;
+    SMLoc loc = parser.getCurrentLocation();
+
+    if (parser.parseLess())
+    {
+        return {};
+    }
+
+    result_attr = FieldParser<Attribute>::parse(parser);
+    if (failed(result_attr))
+    {
+        parser.emitError(
+            parser.getCurrentLocation(),
+            "failed to parse ConstantArrayAttr parameter 'value' which is to be a 'Attribute'"
+        );
+        return {};
+    }
+
+    if (mlir::dyn_cast<ArrayAttr>(*result_attr))
+    {
+        if (parser.parseOptionalColon().failed())
+        {
+            result_type = type;
+        }
+        else
+        {
+            result_type = mlir::FieldParser<Type>::parse(parser);
+            if (failed(result_type))
+            {
+                parser.emitError(
+                    parser.getCurrentLocation(),
+                    "failed to parse ConstantArrayAttr parameter 'type' which is to be a 'Type'"
+                );
+                return {};
+            }
+        }
+    }
+    else
+    {
+        parser.emitError(
+            parser.getCurrentLocation(),
+            "failed to parse ConstantArrayAttr parameter 'value' which is to be a 'ArrayAttr'"
+        );
+        return {};
+    }
+
+    if (parser.parseGreater())
+    {
+        return {};
+    }
+
+    return parser.getChecked<ConstantArrayAttr>(loc, parser.getContext(), result_type.value(), result_attr.value());
+}
+
+auto mlir::atemhir::ConstantArrayAttr::print(AsmPrinter &printer) const -> void
+{
+    printer << "<";
+    printer.printStrippedAttrOrType(this->getElements());
+    printer << ">";
+}

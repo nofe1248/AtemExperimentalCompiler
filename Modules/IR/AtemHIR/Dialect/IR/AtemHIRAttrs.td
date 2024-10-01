@@ -11,6 +11,29 @@ class AtemHIR_Attr<string name, string attr_mnemonic, list<Trait> traits = []> :
     let mnemonic = attr_mnemonic;
 }
 
+//========================================================
+// Atem HIR Boolean Attribute
+//========================================================
+
+def AtemHIR_BoolAttr :
+    AtemHIR_Attr<"Bool", "bool", [TypedAttrInterface]>
+{
+    let summary = "Represent true/false for !atemhir.bool type";
+
+    let parameters = (ins
+        AttributeSelfTypeParameter<"", "::mlir::atemhir::BoolType">:$type,
+        "bool":$value
+    );
+
+    let assemblyFormat = [{
+        `<` $value `>`
+    }];
+}
+
+//========================================================
+// Atem HIR Integer Attribute
+//========================================================
+
 def AtemHIR_IntAttr :
     AtemHIR_Attr<"Int", "int", [TypedAttrInterface]>
 {
@@ -49,6 +72,10 @@ def AtemHIR_IntAttr :
     let hasCustomAssemblyFormat = 1;
 }
 
+//========================================================
+// Atem HIR Floating-point Type
+//========================================================
+
 def FPAttr :
     AtemHIR_Attr<"FP", "fp", [TypedAttrInterface]>
 {
@@ -74,6 +101,25 @@ def FPAttr :
     let genVerifyDecl = 1;
 
     let assemblyFormat = "`<` custom<FloatLiteral>($value, ref($type)) `>`";
+}
+
+//========================================================
+// Atem HIR Constant Array Attribute
+//========================================================
+
+def AtemHIR_ConstantArrayAttr :
+    AtemHIR_Attr<"ConstantArray", "constant_array", [TypedAttrInterface]>
+{
+    let summary = "Attribute represents a constant array";
+
+    let parameters = (ins
+        AttributeSelfTypeParameter<"">:$type,
+        "::mlir::Attribute":$elements
+    );
+
+    let hasCustomAssemblyFormat = 1;
+
+    let genVerifyDecl = 1;
 }
 
 #endif  //ATEM_HIR_ATTRS

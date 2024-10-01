@@ -37,11 +37,10 @@ auto mlir::atemhir::AtemHIRDialect::parseType(DialectAsmParser &parser) const ->
         return gen_type;
     }
 
-    return StringSwitch<function_ref<Type()>>(mnemonic)
-        .Default([&] {
-            parser.emitError(type_loc) << "unknown Atem HIR type: " << mnemonic;
-            return Type();
-        })();
+    return StringSwitch<function_ref<Type()>>(mnemonic).Default([&] {
+        parser.emitError(type_loc) << "unknown Atem HIR type: " << mnemonic;
+        return Type();
+    })();
 }
 auto mlir::atemhir::AtemHIRDialect::printType(Type type, DialectAsmPrinter &printer) const -> void
 {
@@ -50,10 +49,26 @@ auto mlir::atemhir::AtemHIRDialect::printType(Type type, DialectAsmPrinter &prin
         return;
     }
 
-    TypeSwitch<Type>(type)
-        .Default([](Type type) {
-            llvm::report_fatal_error("printer is missing a handler for this type");
-        });
+    TypeSwitch<Type>(type).Default([](Type type) { llvm::report_fatal_error("printer is missing a handler for this type"); });
+}
+
+//========================================================
+// Boolean Types Definitions
+//========================================================
+
+auto mlir::atemhir::BoolType::getTypeSizeInBits(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> llvm::TypeSize
+{
+    return llvm::TypeSize::getFixed(8);
+}
+
+auto mlir::atemhir::BoolType::getABIAlignment(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> uint64_t
+{
+    return 1;
+}
+
+auto mlir::atemhir::BoolType::getPreferredAlignment(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> uint64_t
+{
+    return 1;
 }
 
 //========================================================
@@ -236,4 +251,47 @@ auto mlir::atemhir::FP128Type::getABIAlignment(DataLayout const &data_layout, Da
 auto mlir::atemhir::FP128Type::getPreferredAlignment(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> uint64_t
 {
     return static_cast<uint64_t>(this->getWidth() / 8);
+}
+
+//========================================================
+// Pointer Types Definitions
+//========================================================
+
+auto mlir::atemhir::PointerType::verify(function_ref<InFlightDiagnostic()> emit_error, Type pointee_type) -> LogicalResult
+{
+    return success();
+}
+
+auto mlir::atemhir::PointerType::getTypeSizeInBits(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> llvm::TypeSize
+{
+    return llvm::TypeSize::getFixed(64);
+}
+
+auto mlir::atemhir::PointerType::getABIAlignment(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> uint64_t
+{
+    return 8;
+}
+
+auto mlir::atemhir::PointerType::getPreferredAlignment(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> uint64_t
+{
+    return 8;
+}
+
+//========================================================
+// Array Types Definitions
+//========================================================
+
+auto mlir::atemhir::ArrayType::getTypeSizeInBits(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> llvm::TypeSize
+{
+    return this->getSize() * data_layout.getTypeSizeInBits(this->getElementType());
+}
+
+auto mlir::atemhir::ArrayType::getABIAlignment(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> uint64_t
+{
+    return data_layout.getTypeABIAlignment(this->getElementType());
+}
+
+auto mlir::atemhir::ArrayType::getPreferredAlignment(DataLayout const &data_layout, DataLayoutEntryListRef params) const -> uint64_t
+{
+    return data_layout.getTypeABIAlignment(this->getElementType());
 }

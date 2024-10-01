@@ -10,6 +10,11 @@ mlir_tablegen(AtemHIRAttrDefs.cpp.inc -gen-attrdef-defs
         -attrdefs-dialect=atemhir)
 add_public_tablegen_target(MLIRAtemHIRAttrDefsIncGen)
 
+set(LLVM_TARGET_DEFINITIONS AtemHIROps.td)
+mlir_tablegen(AtemHIROpsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(AtemHIROpsEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(MLIRAtemHIREnumDefsIncGen)
+
 add_mlir_dialect_library(
     AtemHIR
         AtemHIR.cpp
@@ -20,10 +25,14 @@ add_mlir_dialect_library(
         AtemHIRDialect.hpp
         AtemHIROps.hpp
         AtemHIRTypes.hpp
+        AtemHIROpsEnums.cpp
+        AtemHIROpsEnums.hpp
 
 
     DEPENDS
         MLIRAtemHIRIncGen
+        MLIRAtemHIRAttrDefsIncGen
+        MLIRAtemHIREnumDefsIncGen
         AtemHIRInterfaces
 
     LINK_COMPONENTS

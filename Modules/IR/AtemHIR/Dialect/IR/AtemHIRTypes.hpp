@@ -7,6 +7,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/Builders.h"
 
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 

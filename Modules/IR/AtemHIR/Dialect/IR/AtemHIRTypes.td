@@ -15,6 +15,26 @@ class AtemHIR_Type<string name, string type_mnemonic,
 }
 
 //========================================================
+// Atem HIR Unit Type
+//========================================================
+
+def AtemHIR_UnitType :
+    AtemHIR_Type<"Unit", "unit">
+{
+    let summary = "Atem HIR unit type";
+}
+
+//========================================================
+// Atem HIR Boolean Type
+//========================================================
+
+def AtemHIR_BoolType :
+    AtemHIR_Type<"Bool", "bool", [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]>
+{
+    let summary = "Atem HIR bool type";
+}
+
+//========================================================
 // Atem HIR Integer Type
 //========================================================
 
@@ -45,7 +65,7 @@ class UnsignedInt<int width> :
     Type<And<[
         CPred<"::mlir::isa<::mlir::atemhir::IntType>($_self)">,
         CPred<"::mlir::cast<::mlir::atemhir::IntType>($_self).isUnsigned()">,
-        CPred<"::mlir::cast<::mlir::atemhir::IntType($_self).getWidth() == " # width>
+        CPred<"::mlir::cast<::mlir::atemhir::IntType>($_self).getWidth() == " # width>
     ]>, width # "-bit unsigned integer", "::mlir::atemhir::IntType">,
     BuildableType<
         "::mlir::atemhir::IntType::get($_builder.getContext(), "
@@ -59,7 +79,7 @@ class SignedInt<int width> :
     Type<And<[
         CPred<"::mlir::isa<::mlir::atemhir::IntType>($_self)">,
         CPred<"::mlir::cast<::mlir::atemhir::IntType>($_self).isSigned()">,
-        CPred<"::mlir::cast<::mlir::atemhir::IntType($_self).getWidth() == " # width>
+        CPred<"::mlir::cast<::mlir::atemhir::IntType>($_self).getWidth() == " # width>
     ]>, width # "-bit signed integer", "::mlir::atemhir::IntType">,
     BuildableType<
         "::mlir::atemhir::IntType::get($_builder.getContext(), "
@@ -80,6 +100,12 @@ def UInt16 : UnsignedInt<16>;
 def UInt32 : UnsignedInt<32>;
 def UInt64 : UnsignedInt<64>;
 def UInt128 : UnsignedInt<128>;
+
+def PrimitiveInt :
+    AnyTypeOf<[
+        SInt8, SInt16, SInt32, SInt64, SInt128, 
+        UInt8, UInt16, UInt32, UInt64, UInt128
+    ]>;
 
 //========================================================
 // Atem HIR Floating-point Type
@@ -121,4 +147,54 @@ def AtemHIR_FP128 :
 {
     let summary = "Atem HIR IEEE-754 binary128 floating-point type";
 }
+
+//========================================================
+// Atem HIR Raw Pointer Type
+//========================================================
+
+def AtemHIR_PointerType :
+    AtemHIR_Type<"Pointer", "ptr", [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]>
+{
+    let summary = "Atem HIR raw pointer type";
+
+    let parameters = (ins
+        "::mlir::Type":$pointee_type
+    );
+
+    let assemblyFormat = [{
+        `<` $pointee_type `>`
+    }];
+
+    let genVerifyDecl = 1;
+}
+
+//========================================================
+// Atem HIR Collection Type
+//========================================================
+
+def AtemHIR_ArrayType :
+    AtemHIR_Type<"Array", "array", [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]>
+{
+    let summary = "Atem HIR array type";
+
+    let parameters = (ins
+        "::mlir::Type":$element_type,
+        "uint64_t":$size
+    );
+
+    let assemblyFormat = [{
+        `<` $element_type `:` $size `>`
+    }];
+}
+
+//========================================================
+// Atem HIR Miscellaneous Type
+//========================================================
+
+def AtemHIR_NoreturnType :
+    AtemHIR_Type<"Noreturn", "noreturn">
+{
+    let summary = "Atem HIR noreturn type";
+}
+
 #endif  //ATEM_HIR_TYPES
