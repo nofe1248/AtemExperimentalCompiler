@@ -202,6 +202,31 @@ def AtemHIR_ContinueOp :
 }
 
 //========================================================
+// Atem HIR Condition Operation
+//========================================================
+
+def AtemHIR_ConditionOp :
+    AtemHIR_Op<
+        "condition",
+        [
+            Terminator,
+            DeclareOpInterfaceMethods<
+                RegionBranchTerminatorOpInterface,
+                ["getSuccessorRegions"]
+            >
+        ]
+    >
+{
+    let summary = "Loop continuation condition";
+
+    let arguments = (ins AtemHIR_BoolType:$condition);
+
+    let assemblyFormat = [{ $condition attr-dict }];
+
+    let hasVerifier = 1;
+}
+
+//========================================================
 // Atem HIR If Operation
 //========================================================
 
@@ -219,7 +244,7 @@ def AtemHIR_IfOp :
     let summary = "Represents an if-then-else expression";
 
     let arguments = (ins AtemHIR_BoolType:$condition);
-    let results = (outs AnyType:$res);
+    let results = (outs Optional<AnyType>:$result);
     let regions = (region 
         AnyRegion:$then_region, 
         AnyRegion:$else_region
@@ -280,25 +305,25 @@ class AtemHIR_WhileOpBase<string mnemonic> :
 def AtemHIR_WhileOp :
     AtemHIR_WhileOpBase<"while">
 {
-    let results = (outs AnyType:$res);
+    let results = (outs Optional<AnyType>:$result);
     let regions = (region 
         SizedRegion<1>:$cond, 
         MinSizedRegion<1>:$body
     );
 
-    let assemblyFormat = [{ $cond `do` $body `:` type($res) attr-dict }];
+    let assemblyFormat = [{ $cond `do` $body (`:` type($result)^)? attr-dict }];
 }
 
 def AtemHIR_DoWhileOp :
     AtemHIR_WhileOpBase<"do">
 {
-    let results = (outs AnyType:$res);
+    let results = (outs Optional<AnyType>:$result);
     let regions = (region 
         MinSizedRegion<1>:$body,
         SizedRegion<1>:$cond        
     );
 
-    let assemblyFormat = [{ $body `while` $cond `:` type($res) attr-dict }];
+    let assemblyFormat = [{ $body `while` $cond (`:` type($result)^)? attr-dict }];
 
     let extraClassDeclaration = [{
         auto getEntry() -> ::mlir::Region & { return this->getBody(); }
@@ -314,7 +339,7 @@ def AtemHIR_ForOp :
 {
     let summary = "Represents a for loop";
 
-    let results = (outs AnyType:$res);
+    let results = (outs Optional<AnyType>:$result);
     let regions = (region
         SizedRegion<1>:$cond,
         MinSizedRegion<1>:$body,
@@ -325,7 +350,7 @@ def AtemHIR_ForOp :
         `:` `cond` $cond
         `body` $body
         `step` $step
-        `:` type($res)
+        (`:` type($result)^)?
         attr-dict
     }];
 
@@ -615,16 +640,200 @@ def AtemHIR_CastOp :
 
     let arguments = (ins
         CastKind:$kind,
-        AnyType:$src
+        AnyType:$source
     );
 
     let results = (outs AnyType:$result);
 
     let assemblyFormat = [{
-        $kind `,` $src `:` type($src) `to` type($result) attr-dict
+        $kind `,` $source `:` type($source) `to` type($result) attr-dict
     }];
 
     let hasVerifier = 1;
     let hasFolder = 1;
 }
+
+//========================================================
+// Atem HIR Unary Operation
+//========================================================
+
+def UnaryOpKind_Inc : I32EnumAttrCase<"Inc", 0, "inc">;
+def UnaryOpKind_Dec : I32EnumAttrCase<"Dec", 1, "dec">;
+def UnaryOpKind_Pos : I32EnumAttrCase<"Pos", 2, "pos">;
+def UnaryOpKind_Neg : I32EnumAttrCase<"Neg", 3, "neg">;
+def UnaryOpKind_Not : I32EnumAttrCase<"Not", 4, "not">;
+
+def UnaryOpKind : 
+    I32EnumAttr<
+        "UnaryOpKind",
+        "unary operation kind",
+        [
+            UnaryOpKind_Inc,
+            UnaryOpKind_Dec,
+            UnaryOpKind_Pos,
+            UnaryOpKind_Neg,
+            UnaryOpKind_Not
+        ]
+    >
+{
+    let cppNamespace = "::mlir::atemhir";
+}
+
+def AtemHIR_UnaryOp :
+    AtemHIR_Op<"unary", [Pure, SameOperandsAndResultType]>
+{
+    let summary = "Unary operations";
+
+    let arguments = (ins
+        Arg<UnaryOpKind, "unary operation kind">:$kind,
+        AnyType:$input
+    );
+    let results = (outs AnyType:$result);
+
+    let assemblyFormat = [{
+        $kind `,` $input `:` type($input) attr-dict
+    }];
+
+    let hasVerifier = 1;
+    let hasFolder = 1;
+}
+
+//========================================================
+// Atem HIR Binary Operation
+//========================================================
+
+def BinaryOpKind_Add : I32EnumAttrCase<"Add", 0, "add">;
+def BinaryOpKind_Sub : I32EnumAttrCase<"Sub", 1, "sub">;
+def BinaryOpKind_Mul : I32EnumAttrCase<"Mul", 2, "mul">;
+def BinaryOpKind_Div : I32EnumAttrCase<"Div", 3, "div">;
+def BinaryOpKind_Rem : I32EnumAttrCase<"Rem", 4, "rem">;
+def BinaryOpKind_And : I32EnumAttrCase<"And", 5, "and">;
+def BinaryOpKind_Or : I32EnumAttrCase<"Or", 6, "or">;
+
+def BinaryOpKind :
+    I32EnumAttr<
+        "BinaryOpKind",
+        "binary operation kind",
+        [
+            BinaryOpKind_Add,
+            BinaryOpKind_Sub,
+            BinaryOpKind_Mul,
+            BinaryOpKind_Div,
+            BinaryOpKind_Rem,
+            BinaryOpKind_And,
+            BinaryOpKind_Or,
+        ]
+    >
+{
+    let cppNamespace = "::mlir::atemhir";
+}
+
+def AtemHIR_BinaryOp :
+    AtemHIR_Op<"binary", [Pure, SameTypeOperands, SameOperandsAndResultType]>
+{
+    let summary = "Binary operations";
+
+    let arguments = (ins
+        Arg<BinaryOpKind, "binary op kind">:$kind,
+        AnyType:$lhs,
+        AnyType:$rhs,
+        UnitAttr:$no_unsigned_wrap,
+        UnitAttr:$no_signed_wrap
+    );
+    let results = (outs AnyType:$result);
+
+    let assemblyFormat = [{
+        $kind `,` $lhs `,` $rhs
+        (`nsw` $no_signed_wrap^)?
+        (`nuw` $no_unsigned_wrap^)?
+        `:` type($lhs) attr-dict
+    }];
+
+    let hasVerifier = 1;
+}
+
+//========================================================
+// Atem HIR Compare Operation
+//========================================================
+
+def CompareOpKind_LT : I32EnumAttrCase<"lt", 0>;
+def CompareOpKind_LE : I32EnumAttrCase<"le", 1>;
+def CompareOpKind_GT : I32EnumAttrCase<"gt", 2>;
+def CompareOpKind_GE : I32EnumAttrCase<"ge", 3>;
+def CompareOpKind_EQ : I32EnumAttrCase<"eq", 4>;
+def CompareOpKind_NE : I32EnumAttrCase<"ne", 5>;
+
+def CompareOpKind :
+    I32EnumAttr<
+        "CompareOpKind",
+        "compare operation kind",
+        [
+            CompareOpKind_LT,
+            CompareOpKind_LE,
+            CompareOpKind_GT,
+            CompareOpKind_GE,
+            CompareOpKind_EQ,
+            CompareOpKind_NE
+        ]
+    >
+{
+    let cppNamespace = "::mlir::atemhir";
+}
+
+def AtemHIR_CompareOp :
+    AtemHIR_Op<"compare", [Pure, SameTypeOperands]>
+{
+    let summary = "Compare two values and produce a boolean result";
+
+    let arguments = (ins 
+        Arg<CompareOpKind, "compare operation kind">:$kind,
+        AnyType:$lhs,
+        AnyType:$rhs
+    );
+    let results = (outs AtemHIR_BoolType);
+
+    let assemblyFormat = [{
+        $kind `,` $lhs `,` $rhs `:` type($lhs) attr-dict
+    }];
+
+    let hasVerifier = 0;
+}
+
+//========================================================
+// Atem HIR Scope Operation
+//========================================================
+
+def AtemHIR_ScopeOp :
+    AtemHIR_Op<
+        "scope", 
+        [
+            DeclareOpInterfaceMethods<RegionBranchOpInterface>,
+            RecursivelySpeculatable,
+            AutomaticAllocationScope,
+            NoRegionArguments
+        ]
+    >
+{
+    let summary = "Represents a scope in Atem";
+
+    let results = (outs Optional<AnyType>:$result);
+    let regions = (region AnyRegion:$scope_region);
+
+    let assemblyFormat = [{
+        custom<OmittedTerminatorRegion>($scope_region) (`:` type($result)^)? attr-dict
+    }];
+
+    let hasVerifier = 1;
+    let skipDefaultBuilders = 1;
+
+    let builders = [
+        OpBuilder<(ins
+            "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$scope_builder
+        )>,
+        OpBuilder<(ins
+            "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$scope_builder
+        )>
+    ];
+}
+
 #endif  //ATEM_HIR_OPS

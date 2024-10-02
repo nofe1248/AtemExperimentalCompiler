@@ -66,7 +66,7 @@ def AtemHIRLoopOpInterface :
             (ins),
             "",
             [{
-                return ::llvm::SmallVector<::mlir::Region *, 2>(&($_op.getRegion(0)), &($_op.getRegion(1)));
+                return ::llvm::SmallVector<::mlir::Region *, 2>{&($_op.getRegion(0)), &($_op.getRegion(1))};
             }]
         >,
         InterfaceMethod<
