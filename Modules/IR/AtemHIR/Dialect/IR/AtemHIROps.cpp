@@ -289,10 +289,168 @@ auto mlir::atemhir::CastOp::verify() -> LogicalResult
 {
     auto result_type = this->getResult().getType();
     auto source_type = this->getSource().getType();
+
+    switch (this->getKind())
+    {
+    case CastKind::bitcast: {
+        return success();
+    }
+    case CastKind::bool_to_int: {
+        if (not isa<IntType>(result_type))
+        {
+            return emitError() << "bool_to_int cast requires the result type be a !atemhir.int type";
+        }
+        if (not isa<BoolType>(source_type))
+        {
+            return emitError() << "bool_to_int cast requires the source type to be a !atemhir.bool type";
+        }
+        return success();
+    }
+    case CastKind::float_promotion: {
+        if (not isa<AtemHIRFPTypeInterface>(source_type) or not isa<AtemHIRFPTypeInterface>(result_type))
+        {
+            return emitError() << "int_promotion cast requires both the source and result type be !atemhir.int type";
+        }
+        auto source_type_fp = cast<AtemHIRFPTypeInterface>(source_type);
+        auto result_type_fp = cast<AtemHIRFPTypeInterface>(result_type);
+        if (source_type_fp.getWidth() > result_type_fp.getWidth())
+        {
+            return emitError() << "float_promotion requires that the width of source fp is smaller than result fp, use float_narrowing instead";
+        }
+        return success();
+    }
+    case CastKind::float_to_int: {
+        if (not isa<IntType>(result_type))
+        {
+            return emitError() << "float_to_int cast requires the result type be a !atemhir.int type";
+        }
+        if (not isa<AtemHIRFPTypeInterface>(source_type))
+        {
+            return emitError() << "float_to_int cast requires the source type be a Atem HIR FP type";
+        }
+        return success();
+    }
+    case CastKind::int_promotion: {
+        if (not isa<IntType>(source_type) or not isa<IntType>(result_type))
+        {
+            return emitError() << "int_promotion cast requires both the source and result type be !atemhir.int type";
+        }
+        if (cast<IntType>(source_type).getWidth() > cast<IntType>(result_type).getWidth())
+        {
+            return emitError()
+                   << "int_promotion requires that the width of source integer type is smaller than result integer type, use int_narrowing instead";
+        }
+        return success();
+    }
+    case CastKind::int_to_bool: {
+        if (not isa<BoolType>(result_type))
+        {
+            return emitError() << "int_to_bool cast requires the result type be a !atemhir.bool type";
+        }
+        if (not isa<IntType>(source_type))
+        {
+            return emitError() << "int_to_bool cast requires the source type to be a !atemhir.int type";
+        }
+        return success();
+    }
+    case CastKind::int_to_float: {
+        if (not isa<AtemHIRFPTypeInterface>(result_type))
+        {
+            return emitError() << "int_to_float cast requires the result type be a Atem HIR FP type";
+        }
+        if (not isa<IntType>(source_type))
+        {
+            return emitError() << "int_to_float cast requires the source type be a !atem.int type";
+        }
+        return success();
+    }
+    case CastKind::int_narrowing: {
+        if (not isa<IntType>(result_type) or not isa<IntType>(source_type))
+        {
+            return emitError() << "int_narrowing cast requires both the source type and result type be !atem.int type";
+        }
+        if (cast<IntType>(source_type).getWidth() <= cast<IntType>(result_type).getWidth())
+        {
+            return emitError() << "int_narrowing cast requires the width of source type is larger than result type, use int_promotion instead";
+        }
+        return success();
+    }
+    case CastKind::float_narrowing: {
+        if (not isa<AtemHIRFPTypeInterface>(source_type) or not isa<AtemHIRFPTypeInterface>(result_type))
+        {
+            return emitError() << "float_narrowing cast requires both the source type and result type be Atem HIR FP type";
+        }
+        if (cast<AtemHIRFPTypeInterface>(source_type).getWidth() <= cast<AtemHIRFPTypeInterface>(result_type).getWidth())
+        {
+            return emitError() << "float_narrowing cast requires the width of source type is larger than result type, use float_promotion instead";
+        }
+        return success();
+    }
+    default:
+        llvm_unreachable("unexpected cast kind");
+    }
 }
 
 auto mlir::atemhir::CastOp::fold(FoldAdaptor adaptor) -> OpFoldResult
 {
+    auto is_int_or_bool_cast = [](CastOp op) {
+        auto kind = op.getKind();
+        return kind == CastKind::int_to_bool or kind == CastKind::bool_to_int or kind == CastKind::int_promotion or kind == CastKind::int_narrowing;
+    };
+    auto try_fold_cast_chain = [&is_int_or_bool_cast](CastOp op) -> Value {
+        CastOp head = op, tail = op;
+
+        while (op)
+        {
+            if (not is_int_or_bool_cast)
+            {
+                break;
+            }
+            head = op;
+            op = dyn_cast_or_null<CastOp>(head.getSource().getDefiningOp());
+        }
+
+        if (head == tail)
+        {
+            return {};
+        }
+
+        if (head.getKind() == CastKind::bool_to_int and tail.getKind() == CastKind::int_to_bool)
+        {
+            return head.getSource();
+        }
+
+        if (head.getKind() == CastKind::int_to_bool and tail.getKind() == CastKind::int_to_bool)
+        {
+            return head.getResult();
+        }
+
+        return {};
+    };
+
+    if (this->getSource().getType() == this->getResult().getType())
+    {
+        switch (this->getKind())
+        {
+        case CastKind::int_promotion:
+        case CastKind::int_narrowing: {
+            SmallVector<OpFoldResult, 1> fold_results;
+            auto fold_order = this->getSource().getDefiningOp()->fold(fold_results);
+            if (fold_order.succeeded() and fold_results[0].is<Attribute>())
+            {
+                return fold_results[0].get<Attribute>();
+            }
+            return {};
+        }
+        case CastKind::bitcast: {
+            return this->getSource();
+        }
+        default: {
+            return {};
+        }
+        }
+    }
+    return try_fold_cast_chain(*this);
 }
 
 auto mlir::atemhir::CastOp::canUsesBeRemoved(SmallPtrSetImpl<OpOperand *> const &blocking_uses, SmallVectorImpl<OpOperand *> &new_blocking_uses,
@@ -331,18 +489,12 @@ auto mlir::atemhir::IfOp::getSuccessorRegions(RegionBranchPoint point, SmallVect
 {
     if (not point.isParent())
     {
-        successors.push_back(RegionSuccessor());
+        successors.push_back(RegionSuccessor(this->getODSResults(0)));
         return;
     }
 
-    Region *else_region = &this->getElseRegion();
-    if (else_region->empty())
-    {
-        else_region = nullptr;
-    }
-
     successors.push_back(RegionSuccessor(&this->getThenRegion()));
-    if (else_region)
+    if (Region *else_region = &this->getElseRegion())
     {
         successors.push_back(RegionSuccessor(else_region));
     }
@@ -388,17 +540,15 @@ auto mlir::atemhir::IfOp::parse(OpAsmParser &parser, OperationState &result) -> 
         }
     }
 
-    if (parser.parseColon())
+    if (not parser.parseOptionalColon())
     {
-        return failure();
+        Type result_type;
+        if (parser.parseType(result_type))
+        {
+            return failure();
+        }
+        result.addTypes(result_type);
     }
-
-    Type result_type;
-    if (parser.parseType(result_type))
-    {
-        return failure();
-    }
-    result.addTypes(result_type);
 
     if (parser.parseOptionalAttrDict(result.attributes))
     {
@@ -449,6 +599,40 @@ auto mlir::atemhir::IfOp::build(OpBuilder &builder, OperationState &result, Valu
 
     builder.createBlock(else_region);
     else_builder(builder, result.location);
+}
+
+auto mlir::atemhir::IfOp::build(OpBuilder &builder, OperationState &result, Value condition, bool has_else,
+                                function_ref<void(OpBuilder &, Type &, Location)> then_builder,
+                                function_ref<void(OpBuilder &, Type &, Location)> else_builder) -> void
+{
+    assert(then_builder && "the builder for 'then' branch must be present");
+
+    result.addOperands(condition);
+
+    OpBuilder::InsertionGuard guard(builder);
+    Region *then_region = result.addRegion();
+    builder.createBlock(then_region);
+    Type then_type;
+    then_builder(builder, then_type, result.location);
+
+    Region *else_region = result.addRegion();
+    if (not has_else)
+    {
+        return;
+    }
+
+    builder.createBlock(else_region);
+    Type else_type;
+    else_builder(builder, else_type, result.location);
+
+    if (then_type and else_type)
+    {
+        if (then_type != else_type)
+        {
+            llvm_unreachable("the result type of then branch and else branch must be the same");
+        }
+        result.addTypes(TypeRange{then_type});
+    }
 }
 
 //========================================================
@@ -509,7 +693,7 @@ auto mlir::atemhir::ConditionOp::getSuccessorRegions(ArrayRef<Attribute> operand
 
 auto mlir::atemhir::ConditionOp::getMutableSuccessorOperands(RegionBranchPoint point) -> MutableOperandRange
 {
-    return {this->getOperation(), 0, 0};
+    return this->getArgsMutable();
 }
 
 //========================================================
@@ -518,10 +702,45 @@ auto mlir::atemhir::ConditionOp::getMutableSuccessorOperands(RegionBranchPoint p
 
 auto mlir::atemhir::WhileOp::getSuccessorRegions(RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &successors) -> void
 {
+    assert(point.isParent() or point.getRegionOrNull());
+
+    if (point.isParent())
+    {
+        successors.emplace_back(&this->getCond(), this->getCond().getArguments());
+    }
+    else if (&this->getBody() == point.getRegionOrNull())
+    {
+        successors.emplace_back(RegionSuccessor{this->getResults()});
+        successors.emplace_back(&this->getCond(), this->getCond().getArguments());
+    }
+    else if (&this->getCond() == point.getRegionOrNull())
+    {
+        successors.emplace_back(&this->getBody(), this->getBody().getArguments());
+        successors.emplace_back(&this->getElse(), this->getElse().getArguments());
+    }
+    else if (&this->getElse() == point.getRegionOrNull())
+    {
+        successors.emplace_back(RegionSuccessor{this->getResults()});
+    }
+    else
+    {
+        llvm_unreachable("unexpected branch origin");
+    }
 }
 
 auto mlir::atemhir::WhileOp::getLoopRegions() -> SmallVector<Region *>
 {
+    return {&this->getCond(), &this->getBody()};
+}
+
+auto mlir::atemhir::WhileOp::getRegionIterArgs() -> Block::BlockArgListType
+{
+    return this->getBody().getArguments();
+}
+
+auto mlir::atemhir::WhileOp::getEntrySuccessorOperands(RegionBranchPoint point) -> OperandRange
+{
+    return this->getInits();
 }
 
 //========================================================
@@ -530,10 +749,45 @@ auto mlir::atemhir::WhileOp::getLoopRegions() -> SmallVector<Region *>
 
 auto mlir::atemhir::DoWhileOp::getSuccessorRegions(RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &successors) -> void
 {
+    assert(point.isParent() or point.getRegionOrNull());
+
+    if (point.isParent())
+    {
+        successors.emplace_back(&this->getBody(), this->getBody().getArguments());
+    }
+    else if (&this->getBody() == point.getRegionOrNull())
+    {
+        successors.emplace_back(RegionSuccessor{this->getResults()});
+        successors.emplace_back(&this->getCond(), this->getCond().getArguments());
+    }
+    else if (&this->getCond() == point.getRegionOrNull())
+    {
+        successors.emplace_back(&this->getBody(), this->getBody().getArguments());
+        successors.emplace_back(&this->getElse(), this->getElse().getArguments());
+    }
+    else if (&this->getElse() == point.getRegionOrNull())
+    {
+        successors.emplace_back(RegionSuccessor{this->getResults()});
+    }
+    else
+    {
+        llvm_unreachable("unexpected branch origin");
+    }
 }
 
 auto mlir::atemhir::DoWhileOp::getLoopRegions() -> SmallVector<Region *>
 {
+    return {&this->getBody()};
+}
+
+auto mlir::atemhir::DoWhileOp::getEntrySuccessorOperands(RegionBranchPoint point) -> OperandRange
+{
+    return this->getInits();
+}
+
+auto mlir::atemhir::DoWhileOp::getRegionIterArgs() -> Block::BlockArgListType
+{
+    return this->getBody().getArguments();
 }
 
 //========================================================
@@ -542,10 +796,91 @@ auto mlir::atemhir::DoWhileOp::getLoopRegions() -> SmallVector<Region *>
 
 auto mlir::atemhir::ForOp::getSuccessorRegions(RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &successors) -> void
 {
+    assert(point.isParent() or point.getRegionOrNull());
+
+    if (point.isParent())
+    {
+        successors.emplace_back(&this->getEntry(), this->getEntry().getArguments());
+    }
+    else if (&this->getCond() == point.getRegionOrNull())
+    {
+        successors.emplace_back(&this->getElse(), this->getElse().getArguments());
+        successors.emplace_back(&this->getBody(), this->getBody().getArguments());
+    }
+    else if (&this->getBody() == point.getRegionOrNull())
+    {
+        auto *after_body = (this->maybeGetStep() ? this->maybeGetStep() : &this->getCond());
+        successors.emplace_back(after_body, after_body->getArguments());
+        successors.emplace_back(RegionSuccessor{this->getResults()});
+    }
+    else if (this->maybeGetStep() == point.getRegionOrNull())
+    {
+        successors.emplace_back(&this->getCond(), this->getCond().getArguments());
+    }
+    else if (&this->getElse() == point.getRegionOrNull())
+    {
+        successors.emplace_back(RegionSuccessor{this->getResults()});
+    }
+    else
+    {
+        llvm_unreachable("unexpected branch origin");
+    }
 }
 
 auto mlir::atemhir::ForOp::getLoopRegions() -> SmallVector<Region *>
 {
+    return {&this->getBody()};
+}
+
+auto mlir::atemhir::ForOp::build(OpBuilder &builder, OperationState &result, llvm::function_ref<void(OpBuilder &, Location)> cond_builder,
+                                 llvm::function_ref<void(OpBuilder &, Location)> body_builder,
+                                 llvm::function_ref<void(OpBuilder &, Location)> step_builder,
+                                 llvm::function_ref<void(OpBuilder &, Type &, Location)> else_builder) -> void
+{
+    Type for_type;
+
+    OpBuilder::InsertionGuard guard(builder);
+
+    builder.createBlock(result.addRegion());
+    cond_builder(builder, result.location);
+
+    builder.createBlock(result.addRegion());
+    body_builder(builder, result.location);
+
+    builder.createBlock(result.addRegion());
+    step_builder(builder, result.location);
+
+    if (for_type)
+    {
+        result.addTypes(TypeRange{for_type});
+    }
+}
+
+auto mlir::atemhir::ForOp::build(OpBuilder &builder, OperationState &result, llvm::function_ref<void(OpBuilder &, Location)> cond_builder,
+                                 llvm::function_ref<void(OpBuilder &, Location)> body_builder,
+                                 llvm::function_ref<void(OpBuilder &, Location)> step_builder,
+                                 llvm::function_ref<void(OpBuilder &, Location)> else_builder) -> void
+{
+    OpBuilder::InsertionGuard guard(builder);
+
+    builder.createBlock(result.addRegion());
+    cond_builder(builder, result.location);
+
+    builder.createBlock(result.addRegion());
+    body_builder(builder, result.location);
+
+    builder.createBlock(result.addRegion());
+    step_builder(builder, result.location);
+}
+
+auto mlir::atemhir::ForOp::getEntrySuccessorOperands(RegionBranchPoint point) -> OperandRange
+{
+    return this->getInits();
+}
+
+auto mlir::atemhir::ForOp::getRegionIterArgs() -> Block::BlockArgListType
+{
+    return this->getBody().getArguments();
 }
 
 //========================================================
@@ -554,10 +889,22 @@ auto mlir::atemhir::ForOp::getLoopRegions() -> SmallVector<Region *>
 
 auto mlir::atemhir::UnaryOp::verify() -> LogicalResult
 {
+    return success();
 }
 
 auto mlir::atemhir::UnaryOp::fold(FoldAdaptor adaptor) -> OpFoldResult
 {
+    if (isa<BoolType>(this->getResult().getType()) and this->getKind() == UnaryOpKind::Not)
+    {
+        if (auto previous = dyn_cast_or_null<UnaryOp>(this->getInput().getDefiningOp()))
+        {
+            if (isa<BoolType>(previous.getResult().getType()) and previous.getKind() == UnaryOpKind::Not)
+            {
+                return previous.getInput();
+            }
+        }
+    }
+    return {};
 }
 
 //========================================================
@@ -566,6 +913,21 @@ auto mlir::atemhir::UnaryOp::fold(FoldAdaptor adaptor) -> OpFoldResult
 
 auto mlir::atemhir::BinaryOp::verify() -> LogicalResult
 {
+    bool is_no_wrap = this->getNoSignedWrap() and this->getNoUnsignedWrap();
+
+    if (not isa<IntType>(this->getType()) and is_no_wrap)
+    {
+        return emitError() << "nsw/nuw flags are only permitted on integer values";
+    }
+
+    bool is_no_wrap_ops = this->getKind() == BinaryOpKind::Add or this->getKind() == BinaryOpKind::Sub or this->getKind() == BinaryOpKind::Mul;
+
+    if (is_no_wrap and not is_no_wrap_ops)
+    {
+        return emitError() << "nsw/nuw flags are only applicable to opcodes: 'add', 'sub', and 'mul'";
+    }
+
+    return success();
 }
 
 //========================================================
@@ -574,10 +936,42 @@ auto mlir::atemhir::BinaryOp::verify() -> LogicalResult
 
 auto mlir::atemhir::ScopeOp::verify() -> LogicalResult
 {
-
+    return success();
 }
 
 auto mlir::atemhir::ScopeOp::getSuccessorRegions(RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &successors) -> void
 {
+    if (not point.isParent())
+    {
+        successors.push_back(RegionSuccessor{this->getODSResults(0)});
+        return;
+    }
+    successors.push_back(RegionSuccessor{&this->getScopeRegion()});
+}
 
+auto mlir::atemhir::ScopeOp::build(OpBuilder &builder, OperationState &result, function_ref<void(OpBuilder &, Type &, Location)> scope_builder)
+    -> void
+{
+    assert(scope_builder && "the callback 'scope_builder' must be present");
+
+    OpBuilder::InsertionGuard guard(builder);
+    Region *scope_region = result.addRegion();
+    builder.createBlock(scope_region);
+
+    Type yield_type;
+    scope_builder(builder, yield_type, result.location);
+
+    if (yield_type)
+    {
+        result.addTypes(TypeRange{yield_type});
+    }
+}
+
+auto mlir::atemhir::ScopeOp::build(OpBuilder &builder, OperationState &result, function_ref<void(OpBuilder &, Location)> scope_builder) -> void
+{
+    assert(scope_builder && "the callback 'scope_builder' must be present");
+    OpBuilder::InsertionGuard guard(builder);
+    Region *scope_region = result.addRegion();
+    builder.createBlock(scope_region);
+    scope_builder(builder, result.location);
 }

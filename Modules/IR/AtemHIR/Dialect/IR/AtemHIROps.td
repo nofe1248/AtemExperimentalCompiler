@@ -77,7 +77,7 @@ def AtemHIR_ReturnOp :
         [
             Terminator, 
             ReturnLike, 
-            ParentOneOf<["FunctionOp", "IfOp", "WhileOp", "ForOp", "DoWhileOp"]>
+            ParentOneOf<["FunctionOp", "IfOp", "WhileOp", "ForOp", "DoWhileOp", "ScopeOp"]>
         ]
     >
 {
@@ -156,7 +156,7 @@ def AtemHIR_YieldOp :
             ReturnLike,
             Terminator,
             ParentOneOf<[
-                "IfOp", "WhileOp", "DoWhileOp", "ForOp"
+                "IfOp", "WhileOp", "DoWhileOp", "ForOp", "ScopeOp"
             ]>
         ]
     >
@@ -176,7 +176,7 @@ def AtemHIR_YieldOp :
 //========================================================
 
 def AtemHIR_BreakOp :
-    AtemHIR_Op<"break", [Terminator]>
+    AtemHIR_Op<"break", [ReturnLike, Terminator]>
 {
     let summary = "A break expression";
 
@@ -209,7 +209,11 @@ def AtemHIR_ConditionOp :
     AtemHIR_Op<
         "condition",
         [
+            Pure,
             Terminator,
+            ParentOneOf<[
+                "WhileOp", "DoWhileOp", "ForOp"
+            ]>,
             DeclareOpInterfaceMethods<
                 RegionBranchTerminatorOpInterface,
                 ["getSuccessorRegions"]
@@ -219,9 +223,14 @@ def AtemHIR_ConditionOp :
 {
     let summary = "Loop continuation condition";
 
-    let arguments = (ins AtemHIR_BoolType:$condition);
+    let arguments = (ins 
+        AtemHIR_BoolType:$condition,
+        Variadic<AnyType>:$args
+    );
 
-    let assemblyFormat = [{ $condition attr-dict }];
+    let assemblyFormat = [{ 
+        `(` $condition `)` attr-dict ($args^ `:` type($args))?
+    }];
 
     let hasVerifier = 1;
 }
@@ -258,6 +267,12 @@ def AtemHIR_IfOp :
         OpBuilder<(ins 
             "::mlir::Value":$cond, 
             "bool":$has_else_branch, 
+            CArg<"::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>">:$then_builder,
+            CArg<"::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>", "nullptr">:$else_builder
+        )>,
+        OpBuilder<(ins 
+            "::mlir::Value":$cond, 
+            "bool":$has_else_branch, 
             CArg<"::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>", "::mlir::atemhir::buildTerminatedBody">:$then_builder,
             CArg<"::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>", "nullptr">:$else_builder
         )>
@@ -269,7 +284,11 @@ def AtemHIR_IfOp :
 //========================================================
 
 class AtemHIR_WhileOpBase<string mnemonic> :
-    AtemHIR_Op<mnemonic, [AtemHIRLoopOpInterface, NoRegionArguments]>
+    AtemHIR_Op<mnemonic, [
+        AtemHIRLoopOpInterface,
+        RecursiveMemoryEffects,
+        SingleBlock
+    ]>
 {
     defvar is_while = !eq(mnemonic, "while");
     let summary = "Atem HIR " # !if(is_while, "while", "do-while") # " loop";
@@ -278,7 +297,8 @@ class AtemHIR_WhileOpBase<string mnemonic> :
         OpBuilder<
             (ins
                 "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$condition_builder,
-                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$body_builder
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$body_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$else_builder
             ),
             [{
                 ::mlir::OpBuilder::InsertionGuard guard($_builder);
@@ -297,33 +317,151 @@ class AtemHIR_WhileOpBase<string mnemonic> :
                     $_builder.createBlock($_state.addRegion());
                     condition_builder($_builder, $_state.location);
                 }]
-            )
-        >
+            ) #
+            [{
+                $_builder.createBlock($_state.addRegion());
+                else_builder($_builder, $_state.location);
+            }]
+        >,
+        OpBuilder<
+            (ins
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$condition_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$body_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$else_builder
+            ),
+            [{
+                ::mlir::Type body_type, else_type;
+                ::mlir::OpBuilder::InsertionGuard guard($_builder);
+                $_builder.createBlock($_state.addRegion());
+            }] # 
+            !if
+            (
+                is_while,
+                [{
+                    condition_builder($_builder, $_state.location);
+                    $_builder.createBlock($_state.addRegion());
+                    body_builder($_builder, body_type, $_state.location);
+                }],
+                [{
+                    body_builder($_builder, body_type, $_state.location);                    
+                    $_builder.createBlock($_state.addRegion());
+                    condition_builder($_builder, $_state.location);
+                }]
+            ) #
+            [{
+                $_builder.createBlock($_state.addRegion());
+                else_builder($_builder, else_type, $_state.location);
+
+                if (body_type and else_type and body_type == else_type) {
+                    $_state.addTypes(::mlir::TypeRange{body_type});
+                }
+            }]
+        >,
+        OpBuilder<
+            (ins
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$condition_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$body_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$else_builder
+            ),
+            [{
+                ::mlir::Type else_type;
+                ::mlir::OpBuilder::InsertionGuard guard($_builder);
+                $_builder.createBlock($_state.addRegion());
+            }] # 
+            !if
+            (
+                is_while,
+                [{
+                    condition_builder($_builder, $_state.location);
+                    $_builder.createBlock($_state.addRegion());
+                    body_builder($_builder, $_state.location);
+                }],
+                [{
+                    body_builder($_builder, $_state.location);                    
+                    $_builder.createBlock($_state.addRegion());
+                    condition_builder($_builder, $_state.location);
+                }]
+            ) #
+            [{
+                $_builder.createBlock($_state.addRegion());
+                else_builder($_builder, else_type, $_state.location);
+                if (else_type) {
+                    $_state.addTypes(::mlir::TypeRange{else_type});
+                }
+            }]
+        >,
+        OpBuilder<
+            (ins
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$condition_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$body_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$else_builder
+            ),
+            [{
+                ::mlir::Type body_type;
+                ::mlir::OpBuilder::InsertionGuard guard($_builder);
+                $_builder.createBlock($_state.addRegion());
+            }] # 
+            !if
+            (
+                is_while,
+                [{
+                    condition_builder($_builder, $_state.location);
+                    $_builder.createBlock($_state.addRegion());
+                    body_builder($_builder, body_type, $_state.location);
+                }],
+                [{
+                    body_builder($_builder, body_type, $_state.location);                    
+                    $_builder.createBlock($_state.addRegion());
+                    condition_builder($_builder, $_state.location);
+                }]
+            ) #
+            [{
+                $_builder.createBlock($_state.addRegion());
+                else_builder($_builder, $_state.location);
+                if (body_type) {
+                    $_state.addTypes(::mlir::TypeRange{body_type});
+                }
+            }]
+        >,
     ];
 }
 
 def AtemHIR_WhileOp :
     AtemHIR_WhileOpBase<"while">
 {
-    let results = (outs Optional<AnyType>:$result);
+    let arguments = (ins Variadic<AnyType>:$inits);
+    let results = (outs Variadic<AnyType>:$result);
     let regions = (region 
         SizedRegion<1>:$cond, 
-        MinSizedRegion<1>:$body
+        MinSizedRegion<1>:$body,
+        MinSizedRegion<1>:$else
     );
 
-    let assemblyFormat = [{ $cond `do` $body (`:` type($result)^)? attr-dict }];
+    let assemblyFormat = [{ 
+    (`(` $inits^ `:` type($inits) `)`)?
+    `cond` $cond 
+    `body` $body 
+    `else` $else
+    (`:` type($result)^)? attr-dict }];
 }
 
 def AtemHIR_DoWhileOp :
     AtemHIR_WhileOpBase<"do">
 {
-    let results = (outs Optional<AnyType>:$result);
+    let arguments = (ins Variadic<AnyType>:$inits);
+    let results = (outs Variadic<AnyType>:$result);
     let regions = (region 
         MinSizedRegion<1>:$body,
-        SizedRegion<1>:$cond        
+        SizedRegion<1>:$cond,
+        MinSizedRegion<1>:$else
     );
 
-    let assemblyFormat = [{ $body `while` $cond (`:` type($result)^)? attr-dict }];
+    let assemblyFormat = [{ 
+    (`(` $inits^ `:` type($inits) `)`)?
+    `body` $body 
+    `cond` $cond 
+    `else` $else
+    (`:` type($result)^)? attr-dict }];
 
     let extraClassDeclaration = [{
         auto getEntry() -> ::mlir::Region & { return this->getBody(); }
@@ -335,21 +473,32 @@ def AtemHIR_DoWhileOp :
 //========================================================
 
 def AtemHIR_ForOp :
-    AtemHIR_Op<"for", [AtemHIRLoopOpInterface, NoRegionArguments]>
+    AtemHIR_Op<
+        "for", 
+        [
+            AtemHIRLoopOpInterface,
+            RecursiveMemoryEffects,
+            SingleBlock
+        ]
+    >
 {
     let summary = "Represents a for loop";
 
-    let results = (outs Optional<AnyType>:$result);
+    let arguments = (ins Variadic<AnyType>:$inits);
+    let results = (outs Variadic<AnyType>:$result);
     let regions = (region
         SizedRegion<1>:$cond,
         MinSizedRegion<1>:$body,
-        SizedRegion<1>:$step
+        SizedRegion<1>:$step,
+        MinSizedRegion<1>:$else
     );
 
     let assemblyFormat = [{
-        `:` `cond` $cond
+        (`(` $inits^ `:` type($inits) `)`)?
+        `cond` $cond
         `body` $body
         `step` $step
+        `else` $else
         (`:` type($result)^)?
         attr-dict
     }];
@@ -358,21 +507,34 @@ def AtemHIR_ForOp :
         OpBuilder<
             (ins
                 "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$cond_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$body_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$step_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$else_builder
+            )
+        >,
+        OpBuilder<
+            (ins
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$cond_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$body_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$step_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$else_builder
+            )
+        >,
+        OpBuilder<
+            (ins
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$cond_builder,
                 "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$body_builder,
-                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$step_builder
-            ),
-            [{
-                ::mlir::OpBuilder::InsertionGuard guard($_builder);
-
-                $_builder.createBlock($_state.addRegion());
-                cond_builder($_builder, $_state.location);
-
-                $_builder.createBlock($_state.addRegion());
-                body_builder($_builder, $_state.location);
-
-                $_builder.createBlock($_state.addRegion());
-                step_builder($_builder, $_state.location);
-            }]
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$step_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>":$else_builder
+            )
+        >,
+        OpBuilder<
+            (ins
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$cond_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$body_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$step_builder,
+                "::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Location)>":$else_builder
+            )
         >
     ];
 
@@ -613,6 +775,8 @@ def CastKind_IntegerToFloat : I32EnumAttrCase<"int_to_float", 3>;
 def CastKind_FloatToInteger : I32EnumAttrCase<"float_to_int", 4>;
 def CastKind_BoolToInteger : I32EnumAttrCase<"bool_to_int", 5>;
 def CastKind_IntegerToBool : I32EnumAttrCase<"int_to_bool", 6>;
+def CastKind_IntegerNarrowing : I32EnumAttrCase<"int_narrowing", 7>;
+def CastKind_FloatNarrowing : I32EnumAttrCase<"float_narrowing", 8>;
 
 def CastKind : 
     I32EnumAttr<
@@ -620,7 +784,7 @@ def CastKind :
         "cast operation kind",
         [
             CastKind_BitCast, CastKind_IntegerPromotion, CastKind_FloatPromotion, CastKind_IntegerToFloat, CastKind_FloatToInteger,
-            CastKind_BoolToInteger, CastKind_IntegerToBool
+            CastKind_BoolToInteger, CastKind_IntegerToBool, CastKind_IntegerNarrowing, CastKind_FloatNarrowing
         ]
     >
 {

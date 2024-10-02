@@ -9,8 +9,14 @@ def AtemHIRLoopOpInterface :
     OpInterface<
         "AtemHIRLoopOpInterface", 
         [
-            DeclareOpInterfaceMethods<RegionBranchOpInterface>,
-            DeclareOpInterfaceMethods<LoopLikeOpInterface>
+            DeclareOpInterfaceMethods<
+                RegionBranchOpInterface,
+                ["getEntrySuccessorOperands"]
+            >,
+            DeclareOpInterfaceMethods<
+                LoopLikeOpInterface,
+                ["getRegionIterArgs"]
+            >
         ]
     >
 {
@@ -34,6 +40,13 @@ def AtemHIRLoopOpInterface :
             }],
             "::mlir::Region &",
             "getBody"
+        >,
+        InterfaceMethod<
+            [{
+                Return the loop's else region.
+            }],
+            "::mlir::Region &",
+            "getElse"
         >,
         InterfaceMethod<
             [{
@@ -90,7 +103,7 @@ def AtemHIRLoopOpInterface :
     ];
 
     let extraClassDeclaration = [{
-        static auto getLoopOrSuccessorRegions(
+        static auto getLoopOpSuccessorRegions(
             ::mlir::atemhir::AtemHIRLoopOpInterface op,
             ::mlir::RegionBranchPoint point,
             ::mlir::SmallVectorImpl<::mlir::RegionSuccessor> &regions
