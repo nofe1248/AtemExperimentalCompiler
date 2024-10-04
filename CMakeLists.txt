@@ -50,6 +50,9 @@ target_sources(
 target_link_libraries(
         AtemExperimentalCompiler PRIVATE
 
+        AtemHIR
+        AtemHIRInterfaces
+
         ${dialect_libs}
         ${conversion_libs}
         ${extension_libs}
@@ -70,6 +73,12 @@ target_link_libraries(
         MLIRTransforms
 )
 
+target_link_options(AtemExperimentalCompiler PRIVATE -pthread -femulated-tls)
+target_compile_options(AtemExperimentalCompiler PRIVATE -pthread -femulated-tls)
+
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Modules)
 add_subdirectory(Modules/IR)
+
+find_path(CPP_PEGLIB_INCLUDE_DIRS "peglib.h")
+target_include_directories(AtemExperimentalCompiler PRIVATE ${CPP_PEGLIB_INCLUDE_DIRS})
