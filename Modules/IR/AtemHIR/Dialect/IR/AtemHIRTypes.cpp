@@ -295,3 +295,12 @@ auto mlir::atemhir::ArrayType::getPreferredAlignment(DataLayout const &data_layo
 {
     return data_layout.getTypeABIAlignment(this->getElementType());
 }
+
+//========================================================
+// Function Types Definitions
+//========================================================
+
+auto mlir::atemhir::FunctionType::clone(TypeRange inputs, TypeRange outputs) const -> FunctionType
+{
+    return atemhir::FunctionType::get(llvm::to_vector(inputs), llvm::to_vector(outputs));
+}

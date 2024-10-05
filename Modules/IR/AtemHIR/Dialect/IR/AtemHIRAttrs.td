@@ -12,6 +12,22 @@ class AtemHIR_Attr<string name, string attr_mnemonic, list<Trait> traits = []> :
 }
 
 //========================================================
+// Atem HIR Unit Attribute
+//========================================================
+
+def AtemHIR_UnitAttr :
+    AtemHIR_Attr<"Unit", "unit", [TypedAttrInterface]>
+{
+    let summary = "Represent unit value for !atemhir.unit type";
+
+    let parameters = (ins
+        AttributeSelfTypeParameter<"", "::mlir::atemhir::UnitType">:$type
+    );
+
+    let assemblyFormat = [{ }];
+}
+
+//========================================================
 // Atem HIR Boolean Attribute
 //========================================================
 

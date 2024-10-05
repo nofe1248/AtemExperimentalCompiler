@@ -214,6 +214,7 @@ type_expr:
 | type_expr LeftSquare DecimalLiteral RightSquare   #array_type_expression
 | function_type_expr                                #function_type_expression
 | struct_type_expr                                  #struct_type_expression
+| Identifier        #identifier_type_expression
 ;
 
 function_type_expr:
@@ -231,17 +232,20 @@ KeywordStruct LeftCurly decls RightCurly
 ;
 
 simple_type_expr:
-KeywordBool |
-KeywordInt |
-KeywordUInt |
-KeywordNoreturn |
-KeywordUnit |
-KeywordFloat16 |
-KeywordFloat32 |
-KeywordFloat64 |
-KeywordFloat80 |
-KeywordFloat128
-KeywordRune |
-KeywordString |
-Identifier
+  KeywordBool       #bool_type_expression
+| KeywordInt        #int_type_expression
+| KeywordUInt       #uint_type_expression
+| KeywordNoreturn   #noreturn_type_expression
+| KeywordUnit       #unit_type_expression
+| float_type_expr   #float_type_expression
+| KeywordRune       #rune_type_expression
+| KeywordString     #string_type_expression
+;
+
+float_type_expr:
+  KeywordFloat16
+| KeywordFloat32
+| KeywordFloat64
+| KeywordFloat80
+| KeywordFloat128
 ;

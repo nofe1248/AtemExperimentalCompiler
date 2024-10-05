@@ -83,9 +83,9 @@ def AtemHIR_ReturnOp :
 {
     let summary = "return operation";
 
-    let arguments = (ins AnyType:$data);
+    let arguments = (ins Variadic<AnyType>:$data);
 
-    let assemblyFormat = "$data attr-dict `:` type($data)";
+    let assemblyFormat = "attr-dict ($data^ `:` type($data))?";
 }
 
 //========================================================
@@ -103,7 +103,7 @@ def AtemHIR_FunctionOp :
 
     let arguments = (ins
         SymbolNameAttr:$sym_name,
-        TypeAttrOf<FunctionType>:$function_type,
+        TypeAttrOf<AtemHIR_FunctionType>:$function_type,
         OptionalAttr<DictArrayAttr>:$arg_attrs,
         OptionalAttr<DictArrayAttr>:$res_attrs
     );

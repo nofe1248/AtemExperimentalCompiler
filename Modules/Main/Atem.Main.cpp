@@ -115,6 +115,35 @@ auto dumpAST() -> int
     return 0;
 }
 
+auto dumpAtemHIR(mlir::MLIRContext &context) -> int
+{
+    llvm::outs() << "Dumping Atem HIR:\n";
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> file_or_err = llvm::MemoryBuffer::getFileOrSTDIN(input_file_name);
+
+    if (std::error_code ec = file_or_err.getError())
+    {
+        llvm::errs() << "Could not open input file: " << ec.message() << "\n";
+        return 1;
+    }
+
+    auto const buffer = std::string_view{file_or_err.get()->getBuffer()};
+    antlr4::ANTLRInputStream input_stream(buffer);
+    atem_antlr::AtemLexer lexer(&input_stream);
+    antlr4::CommonTokenStream tokens(&lexer);
+    atem_antlr::AtemParser parser(&tokens);
+
+    auto *ast_root = parser.program();
+
+    parser::AtemHIRGenerator generator(context, input_file_name);
+
+    if (mlir::ModuleOp hir_module = generator.buildAtemHIRModuleFromAST(ast_root))
+    {
+        hir_module->dump();
+    }
+
+    return 0;
+}
+
 auto AtemMain(int argc, char *argv[]) -> int
 {
     mlir::registerAsmPrinterCLOptions();
@@ -134,6 +163,35 @@ auto AtemMain(int argc, char *argv[]) -> int
 
     mlir::MLIRContext context(registry);
     context.getOrLoadDialect<mlir::atemhir::AtemHIRDialect>();
+
+    context.getDiagEngine().registerHandler([](mlir::Diagnostic &diag) {
+        diag.getLocation().print(llvm::errs());
+        llvm::errs() << "\n\t";
+        switch (diag.getSeverity())
+        {
+        case mlir::DiagnosticSeverity::Remark:
+            llvm::errs() << "remark: ";
+            break;
+        case mlir::DiagnosticSeverity::Note:
+            llvm::errs() << "note: ";
+            break;
+        case mlir::DiagnosticSeverity::Warning:
+            llvm::errs() << "warning: ";
+            break;
+        case mlir::DiagnosticSeverity::Error:
+            llvm::errs() << "error: ";
+            break;
+        default:
+            llvm_unreachable("Unhandled diagnostic severity");
+        }
+        diag.print(llvm::errs());
+        llvm::errs() << "\n\n";
+    });
+
+    if (emit_action == Action::DumpAtemHIR)
+    {
+        return dumpAtemHIR(context);
+    }
 
     return 0;
 }

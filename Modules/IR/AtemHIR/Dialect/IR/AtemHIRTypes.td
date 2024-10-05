@@ -197,4 +197,61 @@ def AtemHIR_NoreturnType :
     let summary = "Atem HIR noreturn type";
 }
 
+def AtemHIR_FunctionType
+    : AtemHIR_Type<"Function", "function"> {
+    let summary = "Atem HIR function type";
+
+    let parameters = (ins 
+        ArrayRefParameter<"Type">:$inputs,
+        ArrayRefParameter<"Type">:$results
+    );
+
+    let assemblyFormat = [{
+        `<` `(` $inputs `)` `->` $results `>`
+    }];
+
+    let builders = [
+        TypeBuilderWithInferredContext<
+        (ins "::mlir::ArrayRef<::mlir::Type>":$inputs, "::mlir::ArrayRef<::mlir::Type>":$results), [{
+            return $_get(results[0].getContext(), inputs, results);
+        }]>
+    ];
+
+    let extraClassDeclaration = [{
+        /// Returns the `i`th input operand type. Asserts if out of bounds.
+        auto getInput(unsigned i) const -> ::mlir::Type { return getInputs()[i]; }
+
+        /// Returns the number of arguments to the function.
+        auto getNumInputs() const -> unsigned { return getInputs().size(); }
+
+        auto isReturningUnit() const -> bool {
+            if (this->getResults().size() == 1)
+            {
+                if(::mlir::isa<::mlir::atemhir::UnitType>(this->getResults().front()))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// Returns a clone of this function type with the given argument
+        /// and result types.
+        auto clone(::mlir::TypeRange inputs, ::mlir::TypeRange results) const
+         -> ::mlir::atemhir::FunctionType;
+    }];
+}
+
+def AtemHIR_StringType :
+    AtemHIR_Type<"String", "string">
+{
+    let summary = "Atem HIR unit type";
+}
+
+def AtemHIR_RuneType :
+    AtemHIR_Type<"Rune", "rune">
+{
+    let summary = "Atem HIR rune type";
+}
+
 #endif  //ATEM_HIR_TYPES
