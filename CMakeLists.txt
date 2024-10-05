@@ -1,7 +1,43 @@
 cmake_minimum_required(VERSION 3.30)
 project(AtemExperimentalCompiler)
 
-set(CMAKE_CXX_STANDARD 26)
+include(FetchContent)
+
+FetchContent_Declare(
+        antlr
+        GIT_REPOSITORY https://github.com/antlr/antlr4
+        GIT_TAG ${ANTLR_TAG}
+        SOURCE_SUBDIR "runtime/Cpp"
+)
+FetchContent_MakeAvailable(antlr)
+
+include(${antlr_SOURCE_DIR}/runtime/Cpp/cmake/FindANTLR.cmake)
+
+antlr_target(
+        AtemLexer ${PROJECT_SOURCE_DIR}/Modules/grammar/AtemLexer.g LEXER
+        PACKAGE atem_antlr
+)
+antlr_target(
+        AtemParser ${PROJECT_SOURCE_DIR}/Modules/grammar/AtemParser.g PARSER
+        PACKAGE atem_antlr
+        DEPENDS_ANTLR AtemLexer
+        COMPILE_FLAGS -lib ${ANTLR_AtemLexer_OUTPUT_DIR}
+        VISITOR
+        LISTENER
+)
+
+message(${ANTLR_AtemLexer_OUTPUT_DIR})
+include_directories(${ANTLR_AtemLexer_OUTPUT_DIR})
+include_directories(${ANTLR_AtemParser_OUTPUT_DIR})
+include_directories(${antlr_SOURCE_DIR}/runtime/Cpp/runtime/src)
+
+add_executable(
+        AtemExperimentalCompiler
+        ${ANTLR_AtemLexer_CXX_OUTPUTS}
+        ${ANTLR_AtemParser_CXX_OUTPUTS}
+)
+
+target_compile_features(AtemExperimentalCompiler PUBLIC cxx_std_26)
 cmake_policy(SET CMP0135 NEW)
 
 find_package(MLIR REQUIRED CONFIG)
@@ -36,8 +72,6 @@ get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 
 add_definitions(-D_SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING)
 
-add_executable(AtemExperimentalCompiler)
-
 target_sources(
         AtemExperimentalCompiler PRIVATE
         FILE_SET atem_exp_cpp_modules TYPE CXX_MODULES FILES
@@ -52,6 +86,8 @@ target_link_libraries(
 
         AtemHIR
         AtemHIRInterfaces
+
+        antlr4_shared
 
         ${dialect_libs}
         ${conversion_libs}
@@ -79,6 +115,3 @@ target_compile_options(AtemExperimentalCompiler PRIVATE -pthread -femulated-tls)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Modules)
 add_subdirectory(Modules/IR)
-
-find_path(CPP_PEGLIB_INCLUDE_DIRS "peglib.h")
-target_include_directories(AtemExperimentalCompiler PRIVATE ${CPP_PEGLIB_INCLUDE_DIRS})

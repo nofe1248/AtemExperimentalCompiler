@@ -5,8 +5,6 @@ module;
 #include <optional>
 #include <string>
 
-#include "peglib.h"
-
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
@@ -23,6 +21,9 @@ module;
 #include "llvm/Support/raw_ostream.h"
 
 #include "IR/AtemHIR/Dialect/IR/AtemHIRDialect.hpp"
+
+#include "AtemLexer.h"
+#include "AtemParser.h"
 
 export module Atem.Main;
 
@@ -91,33 +92,27 @@ export namespace atem
 {
 namespace cl = llvm::cl;
 
-auto parseInputFile(llvm::StringRef filename, std::shared_ptr<parser::AtemParserPackrat> &parser_ptr)
-    -> std::optional<std::shared_ptr<parser::AtemAST>>
+auto dumpAST() -> int
 {
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> file_or_err = llvm::MemoryBuffer::getFileOrSTDIN(filename);
+    llvm::outs() << "Dumping Abstract Syntax Tree:\n";
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> file_or_err = llvm::MemoryBuffer::getFileOrSTDIN(input_file_name);
 
     if (std::error_code ec = file_or_err.getError())
     {
         llvm::errs() << "Could not open input file: " << ec.message() << "\n";
-        return std::nullopt;
+        return 1;
     }
 
-    auto const buffer = file_or_err.get()->getBuffer();
-    parser_ptr = std::make_shared<parser::AtemParserPackrat>(std::string{buffer.begin(), buffer.end()});
-    return parser_ptr->parse();
-}
+    auto const buffer = std::string_view{file_or_err.get()->getBuffer()};
+    antlr4::ANTLRInputStream input_stream(buffer);
+    atem_antlr::AtemLexer lexer(&input_stream);
+    antlr4::CommonTokenStream tokens(&lexer);
+    atem_antlr::AtemParser parser(&tokens);
 
-auto dumpAST() -> int
-{
-    std::shared_ptr<parser::AtemParserPackrat> parser;
-    auto ast_root = parseInputFile(input_file_name, parser);
-
-    if (ast_root.has_value())
-    {
-        llvm::outs() << peg::ast_to_s(ast_root.value()) << "\n";
-        return 0;
-    }
-    return 1;
+    auto *ast_root = parser.program();
+    auto ast_str = ast_root->toStringTree(true);
+    llvm::outs() << ast_str << "\n";
+    return 0;
 }
 
 auto AtemMain(int argc, char *argv[]) -> int
