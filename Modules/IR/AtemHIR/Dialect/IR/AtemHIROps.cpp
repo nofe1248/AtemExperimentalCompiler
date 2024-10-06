@@ -244,6 +244,8 @@ auto mlir::atemhir::CopyOp::verify() -> LogicalResult
     {
         return emitError() << "source and destination addresses are the same";
     }
+
+    return success();
 }
 
 auto mlir::atemhir::CopyOp::loadsFrom(MemorySlot const &slot) -> bool
@@ -402,7 +404,7 @@ auto mlir::atemhir::CastOp::fold(FoldAdaptor adaptor) -> OpFoldResult
 
         while (op)
         {
-            if (not is_int_or_bool_cast)
+            if (not is_int_or_bool_cast(op))
             {
                 break;
             }

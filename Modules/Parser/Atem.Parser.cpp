@@ -8,8 +8,10 @@ module;
 #include <fstream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
+#include <ranges>
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
@@ -31,11 +33,47 @@ module;
 #include "IR/AtemHIR/Dialect/IR/AtemHIRAttrs.hpp"
 #include "IR/AtemHIR/Dialect/IR/AtemHIRDialect.hpp"
 #include "IR/AtemHIR/Dialect/IR/AtemHIROps.hpp"
+#include "IR/AtemHIR/Dialect/IR/AtemHIRTypes.hpp"
 
 #include "AtemParser.h"
 #include "AtemParserBaseVisitor.h"
 
 export module Atem.Parser;
+
+export namespace llvm
+{
+template <>
+struct DenseMapInfo<std::string, void>
+{
+    static inline auto getEmptyKey() -> std::string
+    {
+        return std::string(reinterpret_cast<const char *>(~static_cast<uintptr_t>(0)), 0);
+    }
+
+    static inline auto getTombstoneKey() -> std::string
+    {
+        return std::string(reinterpret_cast<const char *>(~static_cast<uintptr_t>(1)), 0);
+    }
+
+    static auto getHashValue(std::string const &Val) -> unsigned
+    {
+        return std::hash<std::string>()(Val);
+    }
+
+    static auto isEqual(std::string const &LHS, std::string const &RHS) -> bool
+    {
+        if (RHS.data() == getEmptyKey().data())
+        {
+            return LHS.data() == getEmptyKey().data();
+        }
+        if (RHS.data() == getTombstoneKey().data())
+        {
+            return LHS.data() == getTombstoneKey().data();
+        }
+        return LHS == RHS;
+    }
+};
+} // namespace llvm
 
 export namespace atem::parser
 {
@@ -43,6 +81,10 @@ using namespace atem_antlr;
 
 auto toString(mlir::Type type) -> std::string
 {
+    if (auto atem_hir_type = mlir::dyn_cast<mlir::atemhir::AtemHIRUtilTypeInterface>(type))
+    {
+        return atem_hir_type.toAtemTypeString();
+    }
     std::string result;
     llvm::raw_string_ostream os(result);
     type.print(os);
@@ -63,12 +105,12 @@ private:
 
     struct VariableDeclarationInfo
     {
-        std::variant<AtemParser::Variable_declContext *, AtemParser::Constant_declContext *> decl_ast;
-        AtemParser::ExprContext *init_expr;
+        mlir::Value var_ssa_value;
+        std::optional<antlr4::ParserRuleContext const *> var_decl_ast = std::nullopt;
     };
-    using ScopeHashTableScopeT = llvm::ScopedHashTable<llvm::StringRef, VariableDeclarationInfo>;
+    using SymbolTableScopeT = llvm::ScopedHashTable<std::string, VariableDeclarationInfo>::ScopeTy;
 
-    ScopeHashTableScopeT symbol_table;
+    llvm::ScopedHashTable<std::string, VariableDeclarationInfo> symbol_table;
     llvm::StringMap<mlir::atemhir::FunctionOp> function_map;
 
     auto generateMLIRLocationFromASTLocation(antlr4::ParserRuleContext const *ast_node) -> mlir::Location
@@ -77,13 +119,14 @@ private:
                                          ast_node->getStart()->getCharPositionInLine());
     }
 
-    auto declareVariable(AtemParser::Variable_declContext *var_decl_ast, AtemParser::ExprContext *init_expr_ast) -> llvm::LogicalResult
+    auto declareVariable(std::string const &var_name, mlir::Value var_ssa_value,
+                         std::optional<antlr4::ParserRuleContext const *> var_decl_ast = std::nullopt) -> llvm::LogicalResult
     {
-        if (this->symbol_table.count(var_decl_ast->Identifier()->getText()) > 0)
+        if (this->symbol_table.count(var_name))
         {
             return mlir::failure();
         }
-        this->symbol_table.insert(var_decl_ast->Identifier()->getText(), {var_decl_ast, init_expr_ast});
+        this->symbol_table.insert(var_name, VariableDeclarationInfo{var_ssa_value, var_decl_ast});
         return mlir::success();
     }
 
@@ -204,11 +247,13 @@ public:
     {
         this->hir_module = mlir::ModuleOp::create(this->builder.getUnknownLoc());
 
+        SymbolTableScopeT var_scope(this->symbol_table);
         for (auto *decl_ptr : ast_root->decls()->decl())
         {
             if (auto *func_ptr = decl_ptr->function_decl())
             {
                 auto func_op = std::any_cast<mlir::atemhir::FunctionOp>(this->visitFunction_decl(func_ptr));
+                this->builder.setInsertionPointToEnd(this->hir_module.getBody());
                 if (func_op)
                 {
                     if (this->function_map.count(func_op.getSymName()) > 0)
@@ -415,7 +460,7 @@ public:
                 auto cast_op = this->builder.create<mlir::atemhir::CastOp>(loc, result_type, int_promotion, source);
                 return mlir::Value{cast_op.getResult()};
             }
-            this->emitError(ast_node, "cannot implicitly narrow {} to {}, use an explicit cast instead", toString(source_type),
+            this->emitError(ast_node, "cannot implicitly narrow '{}' to '{}', use an explicit cast instead", toString(source_type),
                             toString(result_type));
             return mlir::Value{nullptr};
         }
@@ -428,7 +473,7 @@ public:
                 auto cast_op = this->builder.create<mlir::atemhir::CastOp>(loc, result_type, float_promotion, source);
                 return mlir::Value{cast_op.getResult()};
             }
-            this->emitError(ast_node, "cannot implicitly narrow {} to {}, use an explicit cast instead", toString(source_type),
+            this->emitError(ast_node, "cannot implicitly narrow '{}' to '{}', use an explicit cast instead", toString(source_type),
                             toString(result_type));
             return mlir::Value{nullptr};
         }
@@ -443,7 +488,8 @@ public:
                     .convertToInteger(fp_max, llvm::APFloat::roundingMode::NearestTiesToAway, &is_exact);
                 if (llvm::APSInt::getMaxValue(source_int.getWidth(), source_int.isUnsigned()) > fp_max)
                 {
-                    this->emitError(ast_node, "cannot implicitly narrow {} to {}, data loss possible", toString(source_type), toString(result_type));
+                    this->emitError(ast_node, "cannot implicitly narrow '{}' to '{}', data loss possible", toString(source_type),
+                                    toString(result_type));
                     return mlir::Value{nullptr};
                 }
                 auto cast_op = this->builder.create<mlir::atemhir::CastOp>(loc, result_type, int_to_float, source);
@@ -455,12 +501,12 @@ public:
             auto result_int = mlir::dyn_cast<mlir::atemhir::IntType>(result_type);
             if (source_fp and result_int)
             {
-                this->emitError(ast_node, "cannot implicitly cast floating-point type {} to integer type {}, use an explicit cast instead",
+                this->emitError(ast_node, "cannot implicitly cast floating-point type '{}' to integer type '{}', use an explicit cast instead",
                                 toString(source_type), toString(result_type));
                 return mlir::Value{nullptr};
             }
         }
-        this->emitError(ast_node, "unsupported implicit cast from {} to {}", toString(source_type), toString(result_type));
+        this->emitError(ast_node, "unsupported implicit cast from '{}' to '{}'", toString(source_type), toString(result_type));
         return mlir::Value{nullptr};
     }
 
@@ -496,6 +542,7 @@ public:
 
     auto visitFunction_decl(AtemParser::Function_declContext *ast_node) -> std::any override
     {
+        SymbolTableScopeT var_scope(this->symbol_table);
         llvm::SmallVector<mlir::Type> param_types{};
         llvm::SmallVector<mlir::Type, 1> result_types{};
 
@@ -503,18 +550,14 @@ public:
         {
             for (auto *func_param_ptr : func_type_ptr->function_parameter_list()->function_parameter())
             {
-                auto type = this->visitType_expr(func_param_ptr->type_expr());
-
-                if (type)
+                if (auto type = this->visitType_expr(func_param_ptr->type_expr()))
                 {
                     param_types.push_back(type);
                 }
             }
             if (auto *func_ret_ptr = func_type_ptr->type_expr())
             {
-                auto ret_type = this->visitType_expr(func_ret_ptr);
-
-                if (ret_type)
+                if (auto ret_type = this->visitType_expr(func_ret_ptr))
                 {
                     result_types.push_back(ret_type);
                 }
@@ -539,6 +582,39 @@ public:
 
         this->builder.setInsertionPointToEnd(&entry_block);
 
+        if (not func_type.getInputs().empty())
+        {
+            for (auto const func_arg :
+                 llvm::zip(entry_block.getArguments(), ast_node->function_type_expr()->function_parameter_list()->function_parameter()))
+            {
+                auto block_arg = std::get<0>(func_arg);
+                auto arg_type = block_arg.getType();
+                auto arg_name = std::get<1>(func_arg)->Identifier()->getText();
+                auto ptr_type = mlir::atemhir::PointerType::get(&this->context, arg_type);
+
+                mlir::DataLayout layout;
+                mlir::DataLayoutEntryList entries;
+                mlir::IntegerAttr alignment = nullptr;
+
+                if (auto data_layout = mlir::dyn_cast<mlir::DataLayoutTypeInterface>(arg_type); data_layout)
+                {
+                    alignment =
+                        mlir::IntegerAttr::get(mlir::IntegerType::get(&this->context, 64), data_layout.getPreferredAlignment(layout, entries));
+                }
+
+                auto var_op = this->builder.create<mlir::atemhir::AllocateVarOp>(this->generateMLIRLocationFromASTLocation(ast_node), ptr_type,
+                                                                                 arg_type, arg_name, alignment);
+                auto init_op = this->builder.create<mlir::atemhir::StoreOp>(
+                    this->generateMLIRLocationFromASTLocation(ast_node), mlir::Value{block_arg}, var_op.getResult(), nullptr, alignment,
+                    mlir::atemhir::MemoryOrderAttr::get(&this->context, mlir::atemhir::MemoryOrder::SequentiallyConsistent));
+
+                if (mlir::failed(this->declareVariable(arg_name, var_op.getResult())))
+                {
+                    this->emitError(std::get<1>(func_arg), "function parameter redeclaration");
+                }
+            }
+        }
+
         if (auto *scope_ptr = ast_node->block_or_expr()->scope_expr())
         {
             for (auto *stmt_ptr : scope_ptr->stmts()->stmt())
@@ -560,6 +636,7 @@ public:
                 {
                     this->emitError(expr_ptr, "fail to implicitly cast from {} to {}", toString(expr_result.getType()),
                                     toString(result_types.front()));
+                    func.erase();
                 }
             }
             else
@@ -586,6 +663,7 @@ public:
             else
             {
                 this->emitError(ast_node, "function {} returning non-Unit must contain a return expression at the end", func_name);
+                func.erase();
                 return mlir::atemhir::FunctionOp{nullptr};
             }
         }
@@ -600,6 +678,8 @@ public:
                 {
                     this->emitError(ast_node, "cannot convert {} to return type {}", toString(return_operand.getType()),
                                     toString(result_types.front()));
+                    func.erase();
+                    return mlir::atemhir::FunctionOp{nullptr};
                 }
                 else
                 {
@@ -613,9 +693,134 @@ public:
             func.setPrivate();
         }
 
-        this->builder.setInsertionPointToEnd(this->hir_module.getBody());
-
         return func;
+    }
+
+    auto visitVariable_decl(AtemParser::Variable_declContext *ast_node) -> std::any override
+    {
+        auto var_name = ast_node->Identifier()->getText();
+        auto var_init_expr = std::any_cast<mlir::Value>(this->visit(ast_node->expr()));
+        auto var_type = this->visitType_expr(ast_node->type_expr());
+
+        auto var_ptr_type = mlir::atemhir::PointerType::get(&this->context, var_type);
+
+        mlir::DataLayout layout;
+        mlir::DataLayoutEntryList entries;
+        mlir::IntegerAttr alignment = nullptr;
+
+        if (auto data_layout = mlir::dyn_cast<mlir::DataLayoutTypeInterface>(var_type); data_layout)
+        {
+            alignment = mlir::IntegerAttr::get(mlir::IntegerType::get(&this->context, 64), data_layout.getPreferredAlignment(layout, entries));
+        }
+
+        auto var_op = this->builder.create<mlir::atemhir::AllocateVarOp>(this->generateMLIRLocationFromASTLocation(ast_node), var_ptr_type, var_type,
+                                                                         var_name, alignment);
+        if (var_type != var_init_expr.getType())
+        {
+            auto casted_init_expr = this->tryImplicitCast(ast_node, var_init_expr, var_type);
+            if (not casted_init_expr)
+            {
+                this->emitError(ast_node, "cannot initialize variable {} of type '{}' with a value {} of type '{}'", var_name, toString(var_type),
+                                ast_node->expr()->getText(), toString(var_init_expr.getType()));
+                var_op.erase();
+                return mlir::Value{nullptr};
+            }
+            this->builder.create<mlir::atemhir::StoreOp>(
+                this->generateMLIRLocationFromASTLocation(ast_node), casted_init_expr, var_op.getResult(), nullptr, alignment,
+                mlir::atemhir::MemoryOrderAttr::get(&this->context, mlir::atemhir::MemoryOrder::SequentiallyConsistent));
+        }
+        else
+        {
+            this->builder.create<mlir::atemhir::StoreOp>(
+                this->generateMLIRLocationFromASTLocation(ast_node), var_init_expr, var_op.getResult(), nullptr, alignment,
+                mlir::atemhir::MemoryOrderAttr::get(&this->context, mlir::atemhir::MemoryOrder::SequentiallyConsistent));
+        }
+
+        if (mlir::failed(this->declareVariable(var_name, var_op.getResult(), ast_node)))
+        {
+            this->emitError(ast_node, "variable {} redeclaration", var_name);
+            return mlir::Value{nullptr};
+        }
+        return var_op.getResult();
+    }
+
+    auto visitIdentifier_expression(AtemParser::Identifier_expressionContext *ast_node) -> std::any override
+    {
+        auto var_name = ast_node->Identifier()->getText();
+        if (this->symbol_table.count(var_name) == 0)
+        {
+            this->emitError(ast_node, "variable {} does not exist", var_name);
+            return mlir::Value{nullptr};
+        }
+
+        auto var_addr = this->symbol_table.lookup(var_name).var_ssa_value;
+        auto var_type = mlir::dyn_cast<mlir::atemhir::PointerType>(var_addr.getType()).getPointeeType();
+
+        mlir::DataLayout layout;
+        mlir::DataLayoutEntryList entries;
+        mlir::IntegerAttr alignment = nullptr;
+
+        if (auto data_layout = mlir::dyn_cast<mlir::DataLayoutTypeInterface>(var_type); data_layout)
+        {
+            alignment = mlir::IntegerAttr::get(mlir::IntegerType::get(&this->context, 64), data_layout.getPreferredAlignment(layout, entries));
+        }
+
+        auto memory_order = mlir::atemhir::MemoryOrderAttr::get(&this->context, mlir::atemhir::MemoryOrder::SequentiallyConsistent);
+
+        //::mlir::Type result, ::mlir::Value addr, /*optional*/bool is_deref, /*optional*/bool is_volatile, /*optional*/::mlir::IntegerAttr alignment,
+        //:/*optional*/::mlir::atemhir::MemoryOrderAttr memory_order
+        auto load_op = this->builder.create<mlir::atemhir::LoadOp>(this->generateMLIRLocationFromASTLocation(ast_node), var_type, var_addr, false,
+                                                                   false, alignment, memory_order);
+        return mlir::Value{load_op.getResult()};
+    }
+
+    auto visitPrefix_expression(AtemParser::Prefix_expressionContext *ast_node) -> std::any override
+    {
+        auto prev_expr = std::any_cast<mlir::Value>(this->visit(ast_node->expr()));
+        for (auto *prefix_op : std::ranges::views::reverse(ast_node->prefix_operator()))
+        {
+            if (auto try_expr = this->visitSinglePrefix_expression(prefix_op, prev_expr); try_expr)
+            {
+                prev_expr = try_expr;
+            }
+        }
+        return prev_expr;
+    }
+
+    auto visitSinglePrefix_expression(AtemParser::Prefix_operatorContext *ast_node, mlir::Value operand) -> mlir::Value
+    {
+        auto op_type = operand.getType();
+        auto loc = this->generateMLIRLocationFromASTLocation(ast_node);
+        if (ast_node->Minus())
+        {
+            if (mlir::isa<mlir::atemhir::IntType>(op_type) or mlir::isa<mlir::atemhir::AtemHIRFPTypeInterface>(op_type))
+            {
+                //::mlir::Type result, ::mlir::atemhir::UnaryOpKind kind, ::mlir::Value input
+                auto neg_op = this->builder.create<mlir::atemhir::UnaryOp>(loc, op_type, mlir::atemhir::UnaryOpKind::Neg, operand);
+                return neg_op.getResult();
+            }
+
+            this->emitError(ast_node, "invalid argument type '{}' to unary expression '-'", toString(op_type));
+            return {nullptr};
+        }
+        if (ast_node->KeywordNot())
+        {
+            if (mlir::isa<mlir::atemhir::BoolType>(op_type))
+            {
+                //::mlir::Type result, ::mlir::atemhir::UnaryOpKind kind, ::mlir::Value input
+                auto neg_op = this->builder.create<mlir::atemhir::UnaryOp>(loc, op_type, mlir::atemhir::UnaryOpKind::Not, operand);
+                return neg_op.getResult();
+            }
+
+            this->emitError(ast_node, "invalid argument type '{}' to unary expression 'not'", toString(op_type));
+            return {nullptr};
+        }
+        if (ast_node->BitNot())
+        {
+            this->emitError(ast_node, "bitwise operations are not supported yet");
+            return {nullptr};
+        }
+        this->unreachable(ast_node, "unknown prefix operator in AST");
     }
 
     auto visitReturn_expr(AtemParser::Return_exprContext *ast_node) -> std::any override

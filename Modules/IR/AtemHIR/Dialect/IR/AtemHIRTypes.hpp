@@ -1,7 +1,10 @@
 #ifndef ATEM_HIR_TYPES_HPP
 #define ATEM_HIR_TYPES_HPP
 
+#include <format>
+
 #include "IR/AtemHIR/Interfaces/AtemHIRFPTypeInterface.hpp"
+#include "IR/AtemHIR/Interfaces/AtemHIRUtilTypeInterface.hpp"
 
 #include "mlir/IR/Types.h"
 #include "mlir/IR/OpImplementation.h"

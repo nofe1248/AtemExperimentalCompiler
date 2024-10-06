@@ -170,6 +170,7 @@ auto AtemMain(int argc, char *argv[]) -> int
 
     context.getDiagEngine().registerHandler([](mlir::Diagnostic &diag) {
         diag.print(llvm::errs());
+        llvm::errs() << "\n";
     });
 
     if (emit_action == Action::DumpAtemHIR)

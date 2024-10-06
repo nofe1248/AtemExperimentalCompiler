@@ -3,6 +3,7 @@
 
 include "AtemHIRDialect.td"
 include "IR/AtemHIR/Interfaces/AtemHIRFPTypeInterface.td"
+include "IR/AtemHIR/Interfaces/AtemHIRUtilTypeInterface.td"
 
 include "mlir/Interfaces/DataLayoutInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
@@ -19,7 +20,7 @@ class AtemHIR_Type<string name, string type_mnemonic,
 //========================================================
 
 def AtemHIR_UnitType :
-    AtemHIR_Type<"Unit", "unit">
+    AtemHIR_Type<"Unit", "unit", [DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>]>
 {
     let summary = "Atem HIR unit type";
 }
@@ -29,7 +30,11 @@ def AtemHIR_UnitType :
 //========================================================
 
 def AtemHIR_BoolType :
-    AtemHIR_Type<"Bool", "bool", [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]>
+    AtemHIR_Type<"Bool", "bool", 
+    [
+        DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+        DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>
+    ]>
 {
     let summary = "Atem HIR bool type";
 }
@@ -39,7 +44,10 @@ def AtemHIR_BoolType :
 //========================================================
 
 def AtemHIR_IntType : AtemHIR_Type<"Int", "int", 
-    [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]>
+    [
+        DeclareTypeInterfaceMethods<DataLayoutTypeInterface>, 
+        DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>
+    ]>
 {
     let summary = "Integer type with arbitrary precision";
     let description = [{
@@ -114,7 +122,8 @@ def PrimitiveInt :
 class AtemHIR_FloatType<string name, string mnemonic>
     : AtemHIR_Type<name, mnemonic, [
         DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
-        DeclareTypeInterfaceMethods<AtemHIRFPTypeInterface>
+        DeclareTypeInterfaceMethods<AtemHIRFPTypeInterface>,
+        DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>
     ]>
 {}
 
@@ -153,7 +162,10 @@ def AtemHIR_FP128 :
 //========================================================
 
 def AtemHIR_PointerType :
-    AtemHIR_Type<"Pointer", "ptr", [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]>
+    AtemHIR_Type<"Pointer", "ptr", [
+        DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+        DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>
+    ]>
 {
     let summary = "Atem HIR raw pointer type";
 
@@ -173,7 +185,10 @@ def AtemHIR_PointerType :
 //========================================================
 
 def AtemHIR_ArrayType :
-    AtemHIR_Type<"Array", "array", [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]>
+    AtemHIR_Type<"Array", "array", [
+        DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+        DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>
+    ]>
 {
     let summary = "Atem HIR array type";
 
@@ -192,13 +207,13 @@ def AtemHIR_ArrayType :
 //========================================================
 
 def AtemHIR_NoreturnType :
-    AtemHIR_Type<"Noreturn", "noreturn">
+    AtemHIR_Type<"Noreturn", "noreturn", [DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>]>
 {
     let summary = "Atem HIR noreturn type";
 }
 
 def AtemHIR_FunctionType
-    : AtemHIR_Type<"Function", "function"> {
+    : AtemHIR_Type<"Function", "function", [DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>]> {
     let summary = "Atem HIR function type";
 
     let parameters = (ins 
@@ -243,13 +258,13 @@ def AtemHIR_FunctionType
 }
 
 def AtemHIR_StringType :
-    AtemHIR_Type<"String", "string">
+    AtemHIR_Type<"String", "string", [DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>]>
 {
     let summary = "Atem HIR unit type";
 }
 
 def AtemHIR_RuneType :
-    AtemHIR_Type<"Rune", "rune">
+    AtemHIR_Type<"Rune", "rune", [DeclareTypeInterfaceMethods<AtemHIRUtilTypeInterface>]>
 {
     let summary = "Atem HIR rune type";
 }

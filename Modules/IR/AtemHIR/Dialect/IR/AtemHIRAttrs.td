@@ -92,7 +92,7 @@ def AtemHIR_IntAttr :
 // Atem HIR Floating-point Type
 //========================================================
 
-def FPAttr :
+def AtemHIR_FPAttr :
     AtemHIR_Attr<"FP", "fp", [TypedAttrInterface]>
 {
     let summary = "An attribute containing a floating-point value";

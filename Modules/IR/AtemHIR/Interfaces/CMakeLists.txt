@@ -15,6 +15,7 @@ function(add_atemhir_mlir_op_interface interface)
 endfunction()
 
 add_atemhir_mlir_type_interface(AtemHIRFPTypeInterface)
+add_atemhir_mlir_type_interface(AtemHIRUtilTypeInterface)
 add_atemhir_mlir_op_interface(AtemHIRLoopOpInterface)
 
 add_mlir_dialect_library(
@@ -23,12 +24,15 @@ add_mlir_dialect_library(
         AtemHIRFPTypeInterface.hpp
         AtemHIRLoopOpInterface.cpp
         AtemHIRLoopOpInterface.hpp
+        AtemHIRUtilTypeInterface.cpp
+        AtemHIRUtilTypeInterface.hpp
 
     ADDITIONAL_HEADER_DIRS
         ${MLIR_MAIN_INCLUDE_DIR}/mlir/Interfaces
 
     DEPENDS
         MLIRAtemHIRFPTypeInterfaceIncGen
+        MLIRAtemHIRUtilTypeInterfaceIncGen
         MLIRAtemHIRLoopOpInterfaceIncGen
 
     LINK_COMPONENTS
