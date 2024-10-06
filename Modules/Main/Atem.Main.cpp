@@ -94,7 +94,6 @@ namespace cl = llvm::cl;
 
 auto dumpAST() -> int
 {
-    llvm::outs() << "Dumping Abstract Syntax Tree:\n";
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> file_or_err = llvm::MemoryBuffer::getFileOrSTDIN(input_file_name);
 
     if (std::error_code ec = file_or_err.getError())
@@ -111,13 +110,13 @@ auto dumpAST() -> int
 
     auto *ast_root = parser.program();
     auto ast_str = ast_root->toStringTree(true);
+    llvm::outs() << "Dumping Abstract Syntax Tree:\n";
     llvm::outs() << ast_str << "\n";
     return 0;
 }
 
 auto dumpAtemHIR(mlir::MLIRContext &context) -> int
 {
-    llvm::outs() << "Dumping Atem HIR:\n";
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> file_or_err = llvm::MemoryBuffer::getFileOrSTDIN(input_file_name);
 
     if (std::error_code ec = file_or_err.getError())
@@ -138,7 +137,12 @@ auto dumpAtemHIR(mlir::MLIRContext &context) -> int
 
     if (mlir::ModuleOp hir_module = generator.buildAtemHIRModuleFromAST(ast_root))
     {
+        llvm::outs() << "Dumping Atem HIR:\n";
         hir_module->dump();
+    }
+    else
+    {
+        llvm::errs() << "Compilation failed\n";
     }
 
     return 0;
@@ -165,27 +169,7 @@ auto AtemMain(int argc, char *argv[]) -> int
     context.getOrLoadDialect<mlir::atemhir::AtemHIRDialect>();
 
     context.getDiagEngine().registerHandler([](mlir::Diagnostic &diag) {
-        diag.getLocation().print(llvm::errs());
-        llvm::errs() << "\n\t";
-        switch (diag.getSeverity())
-        {
-        case mlir::DiagnosticSeverity::Remark:
-            llvm::errs() << "remark: ";
-            break;
-        case mlir::DiagnosticSeverity::Note:
-            llvm::errs() << "note: ";
-            break;
-        case mlir::DiagnosticSeverity::Warning:
-            llvm::errs() << "warning: ";
-            break;
-        case mlir::DiagnosticSeverity::Error:
-            llvm::errs() << "error: ";
-            break;
-        default:
-            llvm_unreachable("Unhandled diagnostic severity");
-        }
         diag.print(llvm::errs());
-        llvm::errs() << "\n\n";
     });
 
     if (emit_action == Action::DumpAtemHIR)

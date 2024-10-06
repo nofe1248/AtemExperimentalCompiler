@@ -1,3 +1,15 @@
 main: func () -> Unit = {
     result: var Int64 = fibonacci(int_v1)
 }
+
+fib: func () -> Int64 = {
+    return 0
+}
+
+fib2: func () -> Float128 = {
+    return 4.2e320
+}
+
+fib3: func () -> Unit = {
+    return
+}

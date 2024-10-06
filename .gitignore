@@ -4,4 +4,5 @@ cmake-build-relwithdebinfo
 cmake-build-minsizerel
 build
 Modules/grammar/.antlr
+dist
 .idea
