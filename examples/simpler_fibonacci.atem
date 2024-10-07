@@ -5,7 +5,7 @@ main: func () -> Unit = {
     test_var2 += 3
 
     a: var Int32 = 1
-    b: var Float64 = 2
+    b: var Float32 = 2.1 as Float32
     c: var Bool = true
 
     bar(a, b, c)

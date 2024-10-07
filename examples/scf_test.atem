@@ -1,0 +1,8 @@
+main: func () -> Unit = {
+    % = if true {
+        1
+    }
+    else {
+        2
+    }
+}

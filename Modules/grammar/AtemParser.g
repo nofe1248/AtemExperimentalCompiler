@@ -45,6 +45,7 @@ Identifier Colon KeywordType Assign struct_type_expr
 
 expr:
   LeftParenthese expr RightParenthese       #paren_expression
+| Remainder Assign expr                       #discard_expression
 | literal_expr                              #literal_expression
 | decl                                      #decl_expression
 | scope_expr                                #scope_expression
@@ -69,6 +70,8 @@ expr:
 | expr binary_logical_operator expr         #binary_logical_expression
 | expr assign_operator expr                 #assignment_expression
 ;
+
+discard: Underscore;
 
 builtin_call_expr:
 Builtin Identifier function_call_operator
@@ -214,8 +217,6 @@ array_literal:
 LeftSquare integer_literal RightSquare type_expr 
 LeftCurly (expr Comma)* expr? RightCurly
 ;
-
-deducible_type_expr: type_expr | Underscore;
 
 type_expr:
   simple_type_expr                                  #simple_type_expression

@@ -665,6 +665,7 @@ public:
         SymbolTableScopeT var_scope(this->symbol_table);
         llvm::SmallVector<mlir::Type> param_types{};
         llvm::SmallVector<mlir::Type, 1> result_types{};
+        mlir::OpBuilder::InsertionGuard guard(this->builder);
 
         if (auto *func_type_ptr = ast_node->function_type_expr())
         {
@@ -821,6 +822,12 @@ public:
         auto var_name = ast_node->Identifier()->getText();
         auto var_init_expr = std::any_cast<mlir::Value>(this->visit(ast_node->expr()));
         auto var_type = this->visitType_expr(ast_node->type_expr());
+
+        if (this->symbol_table.count(var_name) > 0)
+        {
+            this->emitError(ast_node, "variable {} already exists", var_name);
+            return mlir::Value{nullptr};
+        }
 
         if (not var_init_expr)
         {
@@ -1568,6 +1575,20 @@ public:
         return result_expr;
     }
 
+    auto visitDiscard_expression(AtemParser::Discard_expressionContext *ast_node) -> std::any override
+    {
+        auto value = std::any_cast<mlir::Value>(this->visit(ast_node->expr()));
+        if (not value)
+        {
+            this->emitError(ast_node, "expecting expression for discard expression");
+            return mlir::Value{nullptr};
+        }
+
+        //::mlir::Value value
+        auto discard_op = this->builder.create<mlir::atemhir::DiscardOp>(this->generateMLIRLocationFromASTLocation(ast_node), value);
+        return mlir::Value{nullptr};
+    }
+
     auto visitConversion_expression(AtemParser::Conversion_expressionContext *ast_node) -> std::any override
     {
         auto source_expr = std::any_cast<mlir::Value>(this->visit(ast_node->expr()));
@@ -1815,6 +1836,320 @@ public:
 
         auto func_type = mlir::atemhir::FunctionType::get(&this->context, arg_types, result_type);
         return func_type;
+    }
+
+    auto visitIf_expression(AtemParser::If_expressionContext *ast_node) -> std::any override
+    {
+        return this->visitIf_expr(ast_node->if_expr());
+    }
+
+    auto visitIf_expr(AtemParser::If_exprContext *ast_node) -> std::any override
+    {
+        auto outer_loc = this->generateMLIRLocationFromASTLocation(ast_node);
+
+        SymbolTableScopeT var_scope(this->symbol_table);
+
+        bool success = true;
+        bool has_result = true;
+
+        //::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)> scope_builder
+        mlir::atemhir::ScopeOp scope_op = this->builder.create<mlir::atemhir::ScopeOp>(
+            outer_loc, [&ast_node, this, &success, &has_result](mlir::OpBuilder &builder, mlir::Type &type, mlir::Location loc) -> void {
+                auto cond_expr = std::any_cast<mlir::Value>(this->visit(ast_node->expr()));
+                if (not mlir::isa<mlir::atemhir::BoolType>(cond_expr.getType()))
+                {
+                    this->emitError(ast_node->expr(), "the condition of if expressions must have type 'Bool'");
+                    success = false;
+                    return;
+                }
+
+                bool has_else_branch = false;
+                if (auto *else_branch_ptr = ast_node->block_or_expr())
+                {
+                    has_else_branch = true;
+                }
+
+                mlir::atemhir::IfOp if_op;
+                mlir::Type result_type, lhs_type, rhs_type;
+
+                if (has_else_branch)
+                {
+                    if (auto *single_expr_ptr = ast_node->block_or_then_expr()->expr())
+                    {
+                        if (auto lhs_expr_result = std::any_cast<mlir::Value>(this->visit(single_expr_ptr)))
+                        {
+                            lhs_type = lhs_expr_result.getType();
+                            lhs_expr_result.getDefiningOp()->erase();
+                        }
+                        else
+                        {
+                            success = false;
+                            return ;
+                        }
+                    }
+                    else
+                    {
+                        auto *scope_expr_ptr = ast_node->block_or_then_expr()->scope_expr();
+                        if (scope_expr_ptr->stmts()->stmt().size() > 0)
+                        {
+                            if (auto lhs_expr_result = std::any_cast<mlir::Value>(this->visit(scope_expr_ptr->stmts()->stmt().back())))
+                            {
+                                lhs_type = lhs_expr_result.getType();
+                                lhs_expr_result.getDefiningOp()->erase();
+                            }
+                            else
+                            {
+                                success = false;
+                                return ;
+                            }
+                        }
+                    }
+
+                    if (auto *single_expr_ptr = ast_node->block_or_expr()->expr())
+                    {
+                        if (auto rhs_expr_result = std::any_cast<mlir::Value>(this->visit(single_expr_ptr)))
+                        {
+                            rhs_type = rhs_expr_result.getType();
+                            rhs_expr_result.getDefiningOp()->erase();
+                        }
+                        else
+                        {
+                            success = false;
+                            return ;
+                        }
+                    }
+                    else
+                    {
+                        auto *scope_expr_ptr = ast_node->block_or_expr()->scope_expr();
+                        if (scope_expr_ptr->stmts()->stmt().size() > 0)
+                        {
+                            if (auto rhs_expr_result = std::any_cast<mlir::Value>(this->visit(scope_expr_ptr->stmts()->stmt().back())))
+                            {
+                                rhs_type = rhs_expr_result.getType();
+                                rhs_expr_result.getDefiningOp()->erase();
+                            }
+                            else
+                            {
+                                success = false;
+                                return ;
+                            }
+                        }
+                    }
+
+                    if (lhs_type and rhs_type)
+                    {
+                        if (auto result_type_opt = this->resolveCommonType(lhs_type, rhs_type); result_type_opt.has_value())
+                        {
+                            result_type = result_type_opt.value();
+                        }
+                        else if (mlir::isa<mlir::atemhir::UnitType>(lhs_type) and mlir::isa<mlir::atemhir::UnitType>(rhs_type))
+                        {
+                            has_result = false;
+                        }
+                        else
+                        {
+                            this->emitError(ast_node, "cannon resolve common type for two branches of if expression ('{}' and '{}')",
+                                            toString(lhs_type), toString(rhs_type));
+                            success = false;
+                            return;
+                        }
+                    }
+                    else if ((lhs_type and not rhs_type) or (rhs_type and not lhs_type))
+                    {
+                        this->emitError(ast_node, "the two branches of if expressions must yield compatible typed values");
+                        success = false;
+                        return;
+                    }
+                    else
+                    {
+                        has_result = false;
+                    }
+                }
+                else
+                {
+                    if (auto *single_expr_ptr = ast_node->block_or_then_expr()->expr())
+                    {
+                        if (auto lhs_expr_result = std::any_cast<mlir::Value>(this->visit(single_expr_ptr)))
+                        {
+                            lhs_type = lhs_expr_result.getType();
+                            lhs_expr_result.getDefiningOp()->erase();
+                        }
+                        else
+                        {
+                            success = false;
+                            return ;
+                        }
+                    }
+                    else
+                    {
+                        auto *scope_expr_ptr = ast_node->block_or_then_expr()->scope_expr();
+                        if (scope_expr_ptr->stmts()->stmt().size() > 0)
+                        {
+                            if (auto lhs_expr_result = std::any_cast<mlir::Value>(this->visit(scope_expr_ptr->stmts()->stmt().back())))
+                            {
+                                lhs_type = lhs_expr_result.getType();
+                                lhs_expr_result.getDefiningOp()->erase();
+                            }
+                            else
+                            {
+                                success = false;
+                                return ;
+                            }
+                        }
+                    }
+
+                    if (not lhs_type or mlir::isa<mlir::atemhir::UnitType>(lhs_type))
+                    {
+                        has_result = false;
+                    }
+                    else
+                    {
+                        result_type = lhs_type;
+                    }
+                }
+
+                auto then_builder = [&ast_node, this, &result_type, &has_result](mlir::OpBuilder &builder_if, mlir::Type &type_if,
+                                                                                 mlir::Location loc_if) {
+                    if (auto *single_expr_ptr = ast_node->block_or_then_expr()->expr())
+                    {
+                        auto expr_result = std::any_cast<mlir::Value>(this->visit(single_expr_ptr));
+
+                        if (not has_result)
+                        {
+                            builder_if.create<mlir::atemhir::YieldOp>(loc_if);
+                        }
+                        else
+                        {
+                            mlir::Value final_result = expr_result;
+                            if (expr_result.getType() != result_type)
+                            {
+                                final_result = this->tryImplicitCast(single_expr_ptr, expr_result, result_type);
+                            }
+
+                            type_if = result_type;
+                            builder_if.create<mlir::atemhir::YieldOp>(loc_if, mlir::ValueRange{final_result});
+                        }
+                    }
+                    else
+                    {
+                        auto stmts = ast_node->block_or_then_expr()->scope_expr()->stmts()->stmt();
+
+                        if (stmts.size() > 0)
+                        {
+                            for (auto *stmt_ptr : std::views::take(stmts, stmts.size() - 1))
+                            {
+                                this->visit(stmt_ptr->expr());
+                            }
+
+                            if (not has_result)
+                            {
+                                builder_if.create<mlir::atemhir::YieldOp>(loc_if);
+                            }
+                            else
+                            {
+                                auto expr_result = std::any_cast<mlir::Value>(this->visit(stmts.back()->expr()));
+                                mlir::Value final_result = expr_result;
+                                if (expr_result.getType() != result_type)
+                                {
+                                    final_result = this->tryImplicitCast(single_expr_ptr, expr_result, result_type);
+                                }
+
+                                type_if = result_type;
+                                builder_if.create<mlir::atemhir::YieldOp>(loc_if, mlir::ValueRange{final_result});
+                            }
+                        }
+                        else
+                        {
+                            builder_if.create<mlir::atemhir::YieldOp>(loc_if);
+                        }
+                    }
+                };
+                auto else_builder = [&ast_node, this, &result_type, &has_result](mlir::OpBuilder &builder_if, mlir::Type &type_if,
+                                                                                 mlir::Location loc_if) {
+                    if (auto *single_expr_ptr = ast_node->block_or_expr()->expr())
+                    {
+                        auto expr_result = std::any_cast<mlir::Value>(this->visit(single_expr_ptr));
+
+                        if (not has_result)
+                        {
+                            builder_if.create<mlir::atemhir::YieldOp>(loc_if);
+                        }
+                        else
+                        {
+                            mlir::Value final_result = expr_result;
+                            if (expr_result.getType() != result_type)
+                            {
+                                final_result = this->tryImplicitCast(single_expr_ptr, expr_result, result_type);
+                            }
+
+                            type_if = result_type;
+                            builder_if.create<mlir::atemhir::YieldOp>(loc_if, mlir::ValueRange{final_result});
+                        }
+                    }
+                    else
+                    {
+                        auto stmts = ast_node->block_or_expr()->scope_expr()->stmts()->stmt();
+
+                        if (stmts.size() > 0)
+                        {
+                            for (auto *stmt_ptr : std::views::take(stmts, stmts.size() - 1))
+                            {
+                                this->visit(stmt_ptr->expr());
+                            }
+
+                            if (not has_result)
+                            {
+                                builder_if.create<mlir::atemhir::YieldOp>(loc_if);
+                            }
+                            else
+                            {
+                                auto expr_result = std::any_cast<mlir::Value>(this->visit(stmts.back()->expr()));
+                                mlir::Value final_result = expr_result;
+                                if (expr_result.getType() != result_type)
+                                {
+                                    final_result = this->tryImplicitCast(single_expr_ptr, expr_result, result_type);
+                                }
+
+                                type_if = result_type;
+                                builder_if.create<mlir::atemhir::YieldOp>(loc_if, mlir::ValueRange{final_result});
+                            }
+                        }
+                        else
+                        {
+                            builder_if.create<mlir::atemhir::YieldOp>(loc_if);
+                        }
+                    }
+                };
+
+                //::mlir::Value cond, bool has_else_branch, ::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)>
+                //: then_builder,
+                //:::llvm::function_ref<void(::mlir::OpBuilder &, ::mlir::Type &, ::mlir::Location)> else_builder = nullptr
+                if (has_else_branch)
+                {
+                    if_op = builder.create<mlir::atemhir::IfOp>(loc, cond_expr, has_else_branch, then_builder, else_builder);
+                }
+                else
+                {
+                    if_op = builder.create<mlir::atemhir::IfOp>(loc, cond_expr, has_else_branch, then_builder, nullptr);
+                }
+
+                if (has_result)
+                {
+                    type = result_type;
+                    builder.create<mlir::atemhir::YieldOp>(loc, if_op.getResult());
+                }
+                else
+                {
+                    builder.create<mlir::atemhir::YieldOp>(loc);
+                }
+            });
+
+        if (success)
+        {
+            return mlir::Value{scope_op.getResult()};
+        }
+        scope_op->erase();
+        return mlir::Value{nullptr};
     }
 };
 } // namespace atem::parser

@@ -1033,4 +1033,24 @@ def AtemHIR_ScopeOp :
     ];
 }
 
+//========================================================
+// Atem HIR Discard Operation
+//========================================================
+
+def AtemHIR_DiscardOp :
+    AtemHIR_Op<"discard", [Pure]>
+{
+    let summary = "Value discarding operation";
+
+    let arguments = (ins
+        AnyType:$value
+    );
+
+    let assemblyFormat = [{
+        $value `:` type($value) attr-dict
+    }];
+
+    let hasVerifier = 0;
+}
+
 #endif  //ATEM_HIR_OPS
