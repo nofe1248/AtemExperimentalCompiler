@@ -198,7 +198,7 @@ def AtemHIR_ArrayType :
     );
 
     let assemblyFormat = [{
-        `<` $element_type `:` $size `>`
+        `<` $element_type `x` $size `>`
     }];
 }
 

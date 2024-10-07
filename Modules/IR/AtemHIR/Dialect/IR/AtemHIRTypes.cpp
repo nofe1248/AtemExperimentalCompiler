@@ -340,7 +340,8 @@ auto mlir::atemhir::ArrayType::toAtemTypeString() const -> std::string
 {
     if (auto atem_hir_type = mlir::dyn_cast<mlir::atemhir::AtemHIRUtilTypeInterface>(this->getElementType()))
     {
-        return atem_hir_type.toAtemTypeString().append("[").append(std::to_string(this->getSize())).append("]");
+        std::string result_str;
+        return result_str.append("[").append(std::to_string(this->getSize())).append("]").append(atem_hir_type.toAtemTypeString());
     }
     std::string result;
     llvm::raw_string_ostream os(result);

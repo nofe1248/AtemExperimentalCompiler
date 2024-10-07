@@ -19,6 +19,7 @@ module;
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/PrettyStackTrace.h"
 
 #include "IR/AtemHIR/Dialect/IR/AtemHIRDialect.hpp"
 
@@ -27,6 +28,7 @@ module;
 
 export module Atem.Main;
 
+import Atem.Exceptions;
 import Atem.Parser;
 
 namespace atem
@@ -184,5 +186,6 @@ auto AtemMain(int argc, char *argv[]) -> int
 
 export auto main(int argc, char *argv[]) -> int
 {
+    llvm::PrettyStackTraceProgram stack_trace_program(argc, argv);
     return atem::AtemMain(argc, argv);
 }

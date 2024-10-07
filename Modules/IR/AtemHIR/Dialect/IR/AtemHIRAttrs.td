@@ -28,6 +28,25 @@ def AtemHIR_UnitAttr :
 }
 
 //========================================================
+// Atem HIR Function Attribute
+//========================================================
+
+def AtemHIR_FunctionAttr :
+    AtemHIR_Attr<"Function", "function", [TypedAttrInterface]>
+{
+    let summary = "Represent a callable";
+
+    let parameters = (ins
+        AttributeSelfTypeParameter<"", "::mlir::atemhir::FunctionType">:$type,
+        "::mlir::SymbolRefAttr":$value
+    );
+
+    let assemblyFormat = [{
+        `<` $value `>`
+    }];
+}
+
+//========================================================
 // Atem HIR Boolean Attribute
 //========================================================
 

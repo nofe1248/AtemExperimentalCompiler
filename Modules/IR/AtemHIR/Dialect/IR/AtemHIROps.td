@@ -826,6 +826,7 @@ def UnaryOpKind_Dec : I32EnumAttrCase<"Dec", 1, "dec">;
 def UnaryOpKind_Pos : I32EnumAttrCase<"Pos", 2, "pos">;
 def UnaryOpKind_Neg : I32EnumAttrCase<"Neg", 3, "neg">;
 def UnaryOpKind_Not : I32EnumAttrCase<"Not", 4, "not">;
+def UnaryOpKind_BitNot : I32EnumAttrCase<"BitNot", 5, "bnot">;
 
 def UnaryOpKind : 
     I32EnumAttr<
@@ -836,7 +837,8 @@ def UnaryOpKind :
             UnaryOpKind_Dec,
             UnaryOpKind_Pos,
             UnaryOpKind_Neg,
-            UnaryOpKind_Not
+            UnaryOpKind_Not,
+            UnaryOpKind_BitNot
         ]
     >
 {
@@ -873,6 +875,9 @@ def BinaryOpKind_Div : I32EnumAttrCase<"Div", 3, "div">;
 def BinaryOpKind_Rem : I32EnumAttrCase<"Rem", 4, "rem">;
 def BinaryOpKind_And : I32EnumAttrCase<"And", 5, "and">;
 def BinaryOpKind_Or : I32EnumAttrCase<"Or", 6, "or">;
+def BinaryOpKind_BitAnd : I32EnumAttrCase<"BitAnd", 7, "band">;
+def BinaryOpKind_BitOr : I32EnumAttrCase<"BitOr", 8, "bor">;
+def BinaryOpKind_BitXor : I32EnumAttrCase<"BitXor", 9, "bxor">;
 
 def BinaryOpKind :
     I32EnumAttr<
@@ -886,6 +891,9 @@ def BinaryOpKind :
             BinaryOpKind_Rem,
             BinaryOpKind_And,
             BinaryOpKind_Or,
+            BinaryOpKind_BitAnd,
+            BinaryOpKind_BitOr,
+            BinaryOpKind_BitXor
         ]
     >
 {
@@ -958,6 +966,31 @@ def AtemHIR_CompareOp :
 
     let assemblyFormat = [{
         $kind `,` $lhs `,` $rhs `:` type($lhs) attr-dict
+    }];
+
+    let hasVerifier = 0;
+}
+
+//========================================================
+// Atem HIR Bitshift Operation
+//========================================================
+
+def AtemHIR_ShiftOp :
+    AtemHIR_Op<"shift", [Pure]>
+{
+    let summary = "Bitshifting operation";
+
+    let arguments = (ins
+        AtemHIR_IntType:$value,
+        AtemHIR_IntType:$amount,
+        UnitAttr:$is_shifting_left
+    );
+    let results = (outs AtemHIR_IntType:$result);
+
+    let assemblyFormat = [{
+        (`left` $is_shifting_left^) : (`right`)?
+        $value `,` $amount `:` type($value) `,` type($amount)
+        `->` type($result) attr-dict
     }];
 
     let hasVerifier = 0;

@@ -210,6 +210,7 @@ BitLeftShiftAssign: '<<=';
 BitRightShiftAssign: '>>=';
 BitAndAssign: '&=';
 BitOrAssign: '|=';
+BitXorAssign: '^=';
 
 GreaterThan: '>';
 LessThan: '<';

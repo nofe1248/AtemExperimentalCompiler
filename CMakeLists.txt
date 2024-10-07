@@ -79,6 +79,7 @@ target_sources(
         Modules/Parser/Atem.Parser.cpp
         Modules/Utils/Result/Atem.Utils.Result.cpp
         Modules/Main/Atem.Main.cpp
+        Modules/Exceptions/Atem.Exceptions.cpp
 )
 
 target_link_libraries(
@@ -108,6 +109,12 @@ target_link_libraries(
         MLIRTargetLLVMIRExport
         MLIRTransforms
 )
+
+find_package(Backward CONFIG REQUIRED)
+target_link_libraries(AtemExperimentalCompiler PRIVATE Backward::Interface)
+
+find_package(libdwarf CONFIG REQUIRED)
+target_link_libraries(AtemExperimentalCompiler PRIVATE libdwarf::dwarf)
 
 target_link_options(AtemExperimentalCompiler PRIVATE -pthread -femulated-tls)
 target_compile_options(AtemExperimentalCompiler PRIVATE -pthread -femulated-tls)

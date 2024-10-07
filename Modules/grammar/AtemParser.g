@@ -168,7 +168,8 @@ RemainderDivideAssign |
 BitLeftShiftAssign |
 BitRightShiftAssign |
 BitAndAssign |
-BitOrAssign
+BitOrAssign |
+BitXorAssign
 ;
 
 function_call_operator: LeftParenthese (expr Comma)* expr? RightParenthese;
@@ -182,7 +183,8 @@ KeywordTrue |
 KeywordFalse |
 KeywordUndefined |
 KeywordNull |
-string_literal
+string_literal |
+array_literal
 ;
 
 integer_literal:
@@ -208,13 +210,20 @@ MultiLineStringOpen QuotedMultiLineText* MultiLineStringClose |
 SingleLineStringOpen QuotedSingleLineText* SingleLineStringClose
 ;
 
+array_literal: 
+LeftSquare integer_literal RightSquare type_expr 
+LeftCurly (expr Comma)* expr? RightCurly
+;
+
+deducible_type_expr: type_expr | Underscore;
+
 type_expr:
   simple_type_expr                                  #simple_type_expression
 | type_expr PointerType                             #pointer_type_expression
-| type_expr LeftSquare DecimalLiteral RightSquare   #array_type_expression
+| LeftSquare integer_literal RightSquare type_expr  #array_type_expression
 | function_type_expr                                #function_type_expression
 | struct_type_expr                                  #struct_type_expression
-| Identifier        #identifier_type_expression
+| Identifier                                        #identifier_type_expression
 ;
 
 function_type_expr:
